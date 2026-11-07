@@ -1,0 +1,18 @@
+### Java / Maven
+backend/target/
+backend/.m2/
+*.class
+*.log
+
+### Local secrets and environment
+.env
+.env.*
+!.env.example
+backend/src/main/resources/application-local.yml
+
+### IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

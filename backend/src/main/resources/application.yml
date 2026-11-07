@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: spendwise-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/spendwise}
+    username: ${SPRING_DATASOURCE_USERNAME:spendwise}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me-for-local-development}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

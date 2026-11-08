@@ -2,56 +2,38 @@ import {
   Wallet,
   ShoppingBag,
   ShieldCheck,
-  TrendingUp,
+  CircleDollarSign,
+  ReceiptText,
   ArrowUpRight,
-  ArrowDownRight,
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api } from "../services/api";
 
-const stats = [
+const statDefinitions = [
   {
-    title: "Weekly Budget",
-    value: "$150.00",
-    note: "Your spending allowance",
+    title: "Total spending",
+    key: "spent",
+    note: "Completed spend this week",
+    icon: CircleDollarSign,
+  },
+  {
+    title: "Remaining budget",
+    key: "remaining",
+    note: "Available within your policy",
     icon: Wallet,
   },
   {
-    title: "Total Spent",
-    value: "$45.00",
-    note: "This week's spending",
-    icon: ShoppingBag,
+    title: "Completed transactions",
+    key: "orders",
+    note: "Successful protected purchases",
+    icon: ReceiptText,
   },
   {
-    title: "Remaining Budget",
-    value: "$105.00",
-    note: "70% of your budget left",
-    icon: TrendingUp,
-  },
-  {
-    title: "Protected Purchases",
-    value: "2",
-    note: "Demo blocked attempts",
+    title: "Active spending policies",
+    key: "policies",
+    note: "Protection rules currently applied",
     icon: ShieldCheck,
-  },
-];
-
-const transactions = [
-  {
-    name: "Wireless Headphones",
-    date: "Nov 06, 2026",
-    amount: "$45.00",
-    status: "Completed",
-  },
-  {
-    name: "Premium Gaming Mouse",
-    date: "Nov 05, 2026",
-    amount: "$75.00",
-    status: "Rejected",
-  },
-  {
-    name: "Mechanical Keyboard",
-    date: "Nov 04, 2026",
-    amount: "$55.00",
-    status: "Completed",
   },
 ];
 
@@ -83,29 +65,76 @@ function StatCard({ item }) {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const [policy, setPolicy] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    Promise.all([api.getPolicy(), api.getTransactionSummary(), api.getTransactions()])
+      .then(([policyData, summaryData, historyData]) => {
+        setPolicy(policyData);
+        setSummary(summaryData);
+        setTransactions((historyData.transactions || []).slice(0, 5));
+      })
+      .catch((error) => setErrorMessage(error.message || "Unable to load dashboard data."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const spent = Number(summary?.completedSpend || 0);
+  const weeklyBudget = Number(policy?.weeklySpendingLimit || 0);
+  const remaining = Number(summary?.remainingBudget || 0);
+  const percentConsumed = weeklyBudget
+    ? Math.min(100, Math.max(0, Math.round((spent / weeklyBudget) * 100)))
+    : 0;
+  const currency = policy?.currency || summary?.currency || "USD";
+  const stats = statDefinitions.map((item) => ({
+    ...item,
+    value: loading
+      ? "—"
+      : item.key === "weeklyBudget"
+      ? `${currency} ${weeklyBudget.toFixed(2)}`
+      : item.key === "spent"
+        ? `${currency} ${spent.toFixed(2)}`
+        : item.key === "remaining"
+          ? `${currency} ${remaining.toFixed(2)}`
+          : item.key === "orders"
+            ? String(summary?.completedOrders || 0)
+            : policy ? "1 active" : "Not configured",
+  }));
 
   return (
 
     <div className="dashboard">
+      {errorMessage && <div className="policy-message error-message">{errorMessage}</div>}
 
       <div className="welcome-section">
 
         <div>
-          <h2>Welcome back!</h2>
+          <span className="eyebrow">YOUR PROTECTED SHOPPING SPACE</span>
+          <h2>Spend with intention.</h2>
 
           <p>
-            Here's an overview of your shopping
-            and spending activity.
+            Discover what matters, make confident purchases, and keep every
+            decision aligned with your personal spending rules.
           </p>
+
+          <button className="save-button hero-action" type="button" onClick={() => navigate("/assistant")}>
+            Open shopping assistant
+            <ArrowUpRight size={16} />
+          </button>
         </div>
 
-        <div className="demo-label">
-          Demo preview
+        <div className="hero-status">
+          <span className="hero-status-dot" />
+          <span>Protection active</span>
         </div>
 
       </div>
 
-      <div className="stats-grid">
+      <div className="stats-grid" aria-busy={loading}>
 
         {stats.map((item) => (
           <StatCard
@@ -133,12 +162,17 @@ export default function Dashboard() {
 
           <div className="budget-content">
 
-            <div className="budget-ring">
+            <div
+              className="budget-ring"
+              style={{
+                "--budget-progress": `${percentConsumed * 3.6}deg`,
+              }}
+            >
 
               <div className="budget-ring-inner">
 
-                <span>70%</span>
-                <small>Remaining</small>
+                <span>{percentConsumed}%</span>
+                <small>Consumed</small>
 
               </div>
 
@@ -149,19 +183,19 @@ export default function Dashboard() {
               <div>
                 <span className="dot spent-dot"></span>
                 <span>Spent</span>
-                <strong>$45.00</strong>
+                <strong>{currency} {spent.toFixed(2)}</strong>
               </div>
 
               <div>
                 <span className="dot remaining-dot"></span>
                 <span>Remaining</span>
-                <strong>$105.00</strong>
+                <strong>{currency} {remaining.toFixed(2)}</strong>
               </div>
 
               <div>
                 <span className="dot total-dot"></span>
                 <span>Total budget</span>
-                <strong>$150.00</strong>
+                <strong>{currency} {weeklyBudget.toFixed(2)}</strong>
               </div>
 
             </div>
@@ -179,33 +213,37 @@ export default function Dashboard() {
               <p>Your purchase protection</p>
             </div>
 
-            <ShieldCheck color="#16a34a" size={22} />
+            <ShieldCheck className="policy-heading-icon" size={22} />
 
           </div>
 
           <div className="rule-item">
             <span>Maximum per item</span>
-            <strong>$60.00</strong>
+            <strong>{policy?.currency || "USD"} {Number(policy?.maxItemPrice || 0).toFixed(2)}</strong>
           </div>
 
           <div className="rule-item">
             <span>Maximum per order</span>
-            <strong>$100.00</strong>
+            <strong>{policy?.currency || "USD"} {Number(policy?.maxOrderAmount || 0).toFixed(2)}</strong>
           </div>
 
           <div className="rule-item">
             <span>Weekly spending limit</span>
-            <strong>$150.00</strong>
+            <strong>{policy?.currency || "USD"} {Number(policy?.weeklySpendingLimit || 0).toFixed(2)}</strong>
           </div>
 
           <div className="rule-item">
             <span>Maximum orders/week</span>
-            <strong>1</strong>
+            <strong>{policy?.maxOrdersPerWeek || 0}</strong>
           </div>
 
           <div className="protection-status">
             <ShieldCheck size={17} />
-            Spending protection enabled
+            <span>Spending protection enabled</span>
+            <button className="text-button" type="button" onClick={() => navigate("/policies")}>
+              Manage policy
+              <ArrowUpRight size={14} />
+            </button>
           </div>
 
         </div>
@@ -221,7 +259,7 @@ export default function Dashboard() {
             <p>Your latest shopping activity</p>
           </div>
 
-          <button className="text-button">
+          <button className="text-button" type="button" onClick={() => navigate("/transactions")}>
             View all
             <ArrowUpRight size={15} />
           </button>
@@ -243,22 +281,22 @@ export default function Dashboard() {
 
             <tbody>
 
-              {transactions.map((item) => (
+              {transactions.map((item, index) => (
 
-                <tr key={item.name}>
+                <tr key={item.checkoutSessionId || `${item.productName}-${item.createdAt}-${index}`}>
 
-                  <td>{item.name}</td>
+                  <td>{item.productName}</td>
 
-                  <td>{item.date}</td>
+                  <td>{new Date(item.createdAt).toLocaleDateString()}</td>
 
                   <td className="amount">
-                    {item.amount}
+                    {item.currency} {item.amount}
                   </td>
 
                   <td>
                     <span
                       className={
-                        item.status === "Completed"
+                        item.status === "CAPTURED"
                           ? "status completed"
                           : "status rejected"
                       }
@@ -277,10 +315,8 @@ export default function Dashboard() {
 
         </div>
 
-        <p className="demo-note">
-          Illustrative data only. Live data will come from
-          the Spring Boot backend in a later step.
-        </p>
+        {!loading && !transactions.length && <p className="demo-note">No transactions yet.</p>}
+        {loading && <p className="demo-note">Loading your latest activity...</p>}
 
       </div>
 

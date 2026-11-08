@@ -39,7 +39,7 @@ const menuItems = [
 
 export default function Sidebar() {
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" aria-label="Primary navigation">
 
       <div className="brand">
 
@@ -49,7 +49,7 @@ export default function Sidebar() {
 
         <div>
           <h2>Spendwise</h2>
-          <span>AI Shopping Assistant</span>
+          <span>Protected buying studio</span>
         </div>
 
       </div>
@@ -67,6 +67,7 @@ export default function Sidebar() {
               key={item.path}
               to={item.path}
               end={item.path === "/"}
+              title={item.name}
               className={({ isActive }) =>
                 isActive
                   ? "nav-link active"
@@ -77,6 +78,7 @@ export default function Sidebar() {
               <Icon size={19} />
 
               <span>{item.name}</span>
+              <span className="nav-active-mark" aria-hidden="true" />
 
             </NavLink>
           );
@@ -85,7 +87,7 @@ export default function Sidebar() {
 
       </nav>
 
-      <div className="sidebar-bottom">
+      <div className="sidebar-bottom" role="status">
 
         <div className="security-icon">
           <ShieldCheck size={19} />

@@ -14,8 +14,8 @@ Channel3 discovery links and a PayPal Sandbox payment are separate actions: the 
 
 ## Local setup
 
-1. Copy `.env.example` to `.env` and set a local PostgreSQL password.
-2. Start PostgreSQL and the API with `docker compose up -d --build`. Compose gives the backend the same database credentials and waits for PostgreSQL to become healthy.
+1. Copy `.env.example` to `.env` and set the PostgreSQL connection and integration credentials. Supabase PostgreSQL is supported with `sslmode=require`.
+2. Start the API with `docker compose up -d --build`. Compose passes the database settings from `.env` directly to the backend.
 3. Flyway applies pending migrations from `backend/src/main/resources/db/migration` on API startup; Hibernate validates the mapped schema and does not create tables. Add schema changes as new `V2__...sql`, `V3__...sql` files; do not edit a migration after it has run in a shared database.
 4. Check the API at `http://localhost:8080/api/health`.
 

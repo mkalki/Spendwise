@@ -6,6 +6,7 @@ import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.repository.SpendingPolicyRepository;
 import java.time.DateTimeException;
 import java.time.ZoneId;
+import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
@@ -27,11 +28,18 @@ public class SpendingPolicyService {
         this.repository = repository;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public SpendingPolicy getActive(String ownerId) {
         return repository.findByOwnerId(ownerId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND, "POLICY_NOT_FOUND", "No spending policy has been configured."));
+                .orElseGet(() -> repository.save(new SpendingPolicy(
+                        ownerId,
+                        new BigDecimal("60.00"),
+                        new BigDecimal("100.00"),
+                        new BigDecimal("150.00"),
+                        1,
+                        "USD",
+                        "US",
+                        "UTC")));
     }
 
     @Transactional

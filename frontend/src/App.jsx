@@ -1,4 +1,5 @@
 
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import Sidebar from "./components/Sidebar";
@@ -9,16 +10,72 @@ import PolicySettings from "./pages/PolicySettings";
 import ShoppingAssistant from "./pages/ShoppingAssistant";
 import Products from "./pages/Products";
 import Transactions from "./pages/Transactions";
+import AuthPage from "./pages/AuthPage";
+import CheckoutReturn from "./pages/CheckoutReturn";
+import { api } from "./services/api";
+import AmbientScene from "./components/AmbientScene";
+import { CustomCursor, ExperienceLoader } from "./components/ExperienceEffects";
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    api.getCurrentUser()
+      .then(setUser)
+      .catch((error) => {
+        if (error.status !== 401) {
+          console.error("Session check failed:", error);
+        }
+      })
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  const ready = !checkingSession;
+
+  if (checkingSession) {
+    return (
+      <>
+        <ExperienceLoader ready={ready} />
+        <CustomCursor />
+        <AmbientScene />
+        <main className="page-content"><div className="panel">Checking your session...</div></main>
+      </>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <ExperienceLoader ready={ready} />
+        <CustomCursor />
+        <AmbientScene />
+        <AuthPage onAuthenticated={setUser} />
+      </>
+    );
+  }
+
   return (
     <div className="app-shell">
+      <ExperienceLoader ready={ready} />
+      <CustomCursor />
+      <AmbientScene />
 
       <Sidebar />
 
       <main className="main-content">
 
-        <Topbar />
+        <Topbar
+          user={user}
+          onLogout={async () => {
+            try {
+              await api.logout();
+              setUser(null);
+            } catch (error) {
+              console.error("Logout failed:", error);
+            }
+          }}
+        />
 
         <div className="page-content">
 
@@ -43,6 +100,16 @@ export default function App() {
             <Route
               path="/transactions"
               element={<Transactions />}
+            />
+
+            <Route
+              path="/checkout/return"
+              element={<CheckoutReturn />}
+            />
+
+            <Route
+              path="/checkout/cancel"
+              element={<CheckoutReturn />}
             />
 
             <Route

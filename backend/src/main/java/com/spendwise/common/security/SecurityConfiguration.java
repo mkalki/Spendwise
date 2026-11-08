@@ -14,6 +14,8 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
 import org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
@@ -28,6 +30,8 @@ import com.spendwise.auth.service.AccountOidcUserService;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 
 @Configuration
 public class SecurityConfiguration {
@@ -38,12 +42,31 @@ public class SecurityConfiguration {
             @Value("${spendwise.auth.frontend-success-url}") String successUrl,
             AccountOidcUserService oidcUserService,
             CookieCsrfTokenRepository csrfTokenRepository,
-            SecurityContextRepository securityContextRepository) throws Exception {
+            SecurityContextRepository securityContextRepository,
+            ObjectMapper objectMapper) throws Exception {
         URI.create(successUrl);
+
+        AuthenticationEntryPoint apiAuthenticationEntryPoint = (request, response, exception) -> {
+            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            response.setContentType("application/json");
+            objectMapper.writeValue(response.getOutputStream(), Map.of(
+                    "code", "UNAUTHENTICATED",
+                    "message", "Authentication is required.",
+                    "details", Map.of()));
+        };
+        AccessDeniedHandler apiAccessDeniedHandler = (request, response, exception) -> {
+            response.setStatus(HttpStatus.FORBIDDEN.value());
+            response.setContentType("application/json");
+            objectMapper.writeValue(response.getOutputStream(), Map.of(
+                    "code", "ACCESS_DENIED",
+                    "message", "The request is not allowed.",
+                    "details", Map.of()));
+        };
 
         http
                 .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
+                .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository)
+                        .ignoringRequestMatchers("/api/webhooks/paypal"))
                 .securityContext(context -> context.securityContextRepository(securityContextRepository))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/health", "/oauth2/**", "/login/oauth2/**").permitAll()
@@ -51,14 +74,15 @@ public class SecurityConfiguration {
                                 "/api/auth/csrf",
                                 "/api/auth/signup",
                                 "/api/auth/login",
-                                "/api/auth/google/**").permitAll()
+                                "/api/auth/google/**",
+                                "/api/webhooks/paypal").permitAll()
                         .requestMatchers("/api/auth/me", "/api/auth/logout").authenticated()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .exceptionHandling(errors -> errors
-                        .defaultAuthenticationEntryPointFor(
-                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                                request -> request.getRequestURI().startsWith("/api/")))
+                        .defaultAuthenticationEntryPointFor(apiAuthenticationEntryPoint,
+                                request -> request.getRequestURI().startsWith("/api/"))
+                        .accessDeniedHandler(apiAccessDeniedHandler))
                 .oauth2Login(oauth -> oauth
                         .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
                         .defaultSuccessUrl(successUrl, true))

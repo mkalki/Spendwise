@@ -1,17 +1,15 @@
 package com.spendwise.payment.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.spendwise.common.config.TransientHttpRetry;
 import java.math.BigDecimal;
 import java.net.URI;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -21,31 +19,40 @@ import org.springframework.web.client.RestClientResponseException;
 public class PayPalClient implements PaymentGateway {
 
     private final RestClient restClient;
-    private final String clientId;
-    private final String clientSecret;
+    private final PayPalAuthService authService;
     private final String returnUrl;
     private final String cancelUrl;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public PayPalClient(
+            PayPalAuthService authService,
             ClientHttpRequestFactory requestFactory,
             @Value("${spendwise.paypal.base-url}") String baseUrl,
-            @Value("${spendwise.paypal.client-id}") String clientId,
-            @Value("${spendwise.paypal.client-secret}") String clientSecret,
             @Value("${spendwise.paypal.return-url}") String returnUrl,
             @Value("${spendwise.paypal.cancel-url}") String cancelUrl) {
         this.restClient = RestClient.builder()
                 .baseUrl(requireSandboxBaseUrl(baseUrl))
                 .requestFactory(requestFactory)
                 .build();
-        this.clientId = clientId;
-        this.clientSecret = clientSecret;
+        this.authService = authService;
         this.returnUrl = returnUrl;
         this.cancelUrl = cancelUrl;
     }
 
+    PayPalClient(
+            ClientHttpRequestFactory requestFactory,
+            String baseUrl,
+            String clientId,
+            String clientSecret,
+            String returnUrl,
+            String cancelUrl) {
+        this(new PayPalAuthService(requestFactory, baseUrl, clientId, clientSecret),
+                requestFactory, baseUrl, returnUrl, cancelUrl);
+    }
+
     @Override
     public OrderCreation createOrder(Long transactionId, BigDecimal amount, String currencyCode) {
-        String accessToken = accessToken();
+        String accessToken = authService.accessToken();
         Map<String, Object> purchaseUnit = Map.of(
                 "reference_id", "spendwise-" + transactionId,
                 "description", "Spendwise Sandbox demonstration payment",
@@ -89,7 +96,7 @@ public class PayPalClient implements PaymentGateway {
 
     @Override
     public CaptureResult captureOrder(Long transactionId, String paypalOrderId) {
-        String accessToken = accessToken();
+        String accessToken = authService.accessToken();
         JsonNode response = request(() -> restClient.post()
                 .uri("/v2/checkout/orders/{orderId}/capture", paypalOrderId)
                 .headers(headers -> {
@@ -123,7 +130,7 @@ public class PayPalClient implements PaymentGateway {
 
     @Override
     public boolean canCancelOrder(String paypalOrderId) {
-        String accessToken = accessToken();
+        String accessToken = authService.accessToken();
         JsonNode response = request(() -> restClient.get()
                 .uri("/v2/checkout/orders/{orderId}", paypalOrderId)
                 .headers(headers -> headers.setBearerAuth(accessToken))
@@ -147,31 +154,34 @@ public class PayPalClient implements PaymentGateway {
         return true;
     }
 
-    private String accessToken() {
-        if (!StringUtils.hasText(clientId) || !StringUtils.hasText(clientSecret)) {
-            throw new PaymentProviderNotConfiguredException();
-        }
-        String credentials = Base64.getEncoder()
-                .encodeToString((clientId + ":" + clientSecret).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("grant_type", "client_credentials");
-        JsonNode response = request(() -> restClient.post()
-                .uri("/v1/oauth2/token")
-                .header("Authorization", "Basic " + credentials)
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(form)
+    @Override
+    public OrderStatus getOrderStatus(String paypalOrderId) {
+        String accessToken = authService.accessToken();
+        JsonNode response = request(() -> restClient.get()
+                .uri("/v2/checkout/orders/{orderId}", paypalOrderId)
+                .headers(headers -> headers.setBearerAuth(accessToken))
                 .retrieve()
                 .body(JsonNode.class));
-        String token = text(response, "access_token");
-        if (!StringUtils.hasText(token)) {
-            throw new PaymentProviderException();
+        JsonNode units = response.path("purchase_units");
+        if (!units.isArray() || units.isEmpty()) {
+            return new OrderStatus(text(response, "status"), null, null, null, null);
         }
-        return token;
+        JsonNode unit = units.get(0);
+        JsonNode amount = unit.path("amount");
+        JsonNode captures = unit.path("payments").path("captures");
+        JsonNode capture = captures.isArray() && !captures.isEmpty() ? captures.get(0) : null;
+        JsonNode confirmedAmount = capture == null ? amount : capture.path("amount");
+        return new OrderStatus(
+                text(response, "status"),
+                text(unit, "reference_id"),
+                capture == null ? null : text(capture, "id"),
+                decimal(confirmedAmount.path("value")),
+                text(confirmedAmount, "currency_code"));
     }
 
     private JsonNode request(java.util.function.Supplier<JsonNode> operation) {
         try {
-            JsonNode response = operation.get();
+            JsonNode response = TransientHttpRetry.execute(operation, false);
             if (response == null) {
                 throw new PaymentProviderException();
             }

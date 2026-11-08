@@ -16,6 +16,10 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     Optional<PaymentTransaction> findByOwnerIdAndId(String ownerId, Long id);
 
+    Optional<PaymentTransaction> findByOwnerIdAndPaypalOrderId(String ownerId, String paypalOrderId);
+
+    Optional<PaymentTransaction> findByPaypalOrderId(String paypalOrderId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select tx from PaymentTransaction tx where tx.ownerId = :ownerId and tx.id = :id")
     Optional<PaymentTransaction> findByOwnerIdAndIdForUpdate(

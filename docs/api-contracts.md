@@ -64,6 +64,29 @@ profile and its provider (`PASSWORD` or `GOOGLE`).
 `POST /api/auth/logout` ends the session and returns `204`.
 Unauthenticated `/api/**` requests return `401`; `/api/health` remains public.
 
+## Gemini text generation
+
+`POST /api/v1/ai/generate` accepts a prompt and sends it to the configured
+Gemini model. It requires the signed-in session and a CSRF token. This endpoint
+is independent of Channel3; the initial connectivity feature does not yet
+interpret shopping requests or rank products.
+
+```json
+{"prompt":"Explain how a weekly spending limit works."}
+```
+
+Response:
+
+```json
+{"model":"gemini-3.8-flash","text":"A weekly spending limit caps the total eligible spending during a defined week."}
+```
+
+Configure `GEMINI_API_KEY` in the backend environment. Optionally set
+`GEMINI_MODEL`; it defaults to `gemini-3.8-flash`. The API key is sent in the
+`x-goog-api-key` header and is never accepted from the browser request.
+Validation errors return `400`; missing configuration returns
+`503 GEMINI_NOT_CONFIGURED`; provider failures return a stable `GEMINI_*` error.
+
 Money values in responses are decimal strings plus an ISO 4217 currency code.
 The server owns the authoritative product price and all policy decisions.
 Never send a price, amount, PayPal order ID, or payment status as trusted input.
@@ -114,13 +137,69 @@ time zone.
 `POST /api/v1/shopping/search`
 
 ```json
-{"message":"Find wireless mechanical keyboards under $45 with good battery life"}
+{
+  "message":"Find wireless mechanical keyboards with good battery life",
+  "sortBy":"AI_RECOMMENDED",
+  "filters":{
+    "minPrice":25,
+    "maxPrice":45,
+    "categoryIds":["keyboards"],
+    "websiteIds":["shop.example"],
+    "availability":"IN_STOCK",
+    "onlyOnSale":false
+  }
+}
 ```
 
-The backend sends the policy country/currency and the stricter of the requested
-maximum and saved product-price cap to Channel3. Search results and offer
-prices are stored against an owner-scoped search session. The response includes
-only Channel3 data; rejected offers include a reason.
+The backend asks Gemini to extract a concise product query and optional budget,
+then searches Channel3 using that query, the policy country/currency, and the
+stricter of user and saved price caps. `sortBy` accepts `LOWEST_PRICE` (the
+default), `BEST_MATCH` (preserve Channel3 ordering), or `AI_RECOMMENDED`.
+`filters` supports `minPrice`, `maxPrice`, `categoryIds`, `websiteIds`,
+`availability` (`IN_STOCK` or `OUT_OF_STOCK`), and `onlyOnSale`. Price values
+use the active policy currency. Price and other explicit filters are sent to
+Channel3; the minimum price is also enforced on returned offers. A request
+budget currency that conflicts with the active policy is rejected.
+
+For `AI_RECOMMENDED`, Gemini ranks only the eligible candidate IDs returned by
+Channel3. The backend ignores unknown and duplicate IDs, appends omitted
+eligible candidates in Channel3 order, and always builds titles, brands,
+prices, merchants, availability, and URLs from Channel3 data. Gemini receives
+candidate IDs, titles, and brands only and cannot supply product facts. If
+Gemini ranking is unavailable or invalid, the search still returns Channel3
+results ordered by Channel3 relevance. Gemini never authorizes purchases or
+changes policy decisions.
+
+The backend calls `POST https://api.trychannel3.com/v1/search` with the
+`x-api-key` header and JSON content type. The provider request includes the
+normalized natural-language query, a default `limit` of `10` (configurable with
+`CHANNEL3_SEARCH_LIMIT` from 1 to 100), the user's country/currency, and the
+selected structured filters. Each product's image and offers are mapped to
+candidate results; offers from different merchants are returned separately.
+An empty `products` array returns empty candidate arrays. Provider errors
+become stable `PRODUCT_PROVIDER_*` API errors; credentials and upstream
+response bodies are not returned to clients.
+Channel3-backed searches and checkout offer refreshes are limited to 100
+provider requests per minute per signed-in user. Requests over the limit return
+`429 Too Many Requests`, code `CHANNEL3_RATE_LIMIT_EXCEEDED`, and a `Retry-After`
+header with the number of seconds to wait.
+
+Example provider request:
+
+```json
+{
+  "query": "Find wireless headphones under $45",
+  "limit": 10,
+  "config": {"country": "US", "currency": "USD"},
+  "filters": {
+    "price": {"min_price": 25, "max_price": 45},
+    "category_ids": ["headphones"],
+    "website_ids": ["shop.example"],
+    "availability": ["InStock"],
+    "sale": "on_sale"
+  }
+}
+```
 
 ```json
 {
@@ -147,16 +226,75 @@ only Channel3 data; rejected offers include a reason.
     }
   ],
   "rejectedCandidates": [],
-  "recommendation": "Lowest-priced eligible offer: Example Wireless Keyboard from example.test."
+  "recommendation": "Gemini ranked eligible products returned by Channel3. Product details are from Channel3.",
+  "sortBy": "AI_RECOMMENDED"
 }
 ```
 
-The current intent parser extracts common textual price limits; it is not an
-LLM integration. The recommendation is a deterministic lowest-price label, not
-AI-generated advice. `CHANNEL3_API_KEY` must be configured for live search;
-otherwise the endpoint returns `503 PRODUCT_PROVIDER_NOT_CONFIGURED`.
+Gemini interprets the natural-language shopping request. Deterministic budget
+parsing reinforces explicit amounts and the policy engine remains the final
+authority. `LOWEST_PRICE` is sorted by the actual Channel3 offer prices.
+`BEST_MATCH` follows Channel3's returned order. For `AI_RECOMMENDED`, Gemini
+can only select and order IDs from eligible Channel3 results; all product facts
+remain server-mapped from Channel3. `GEMINI_API_KEY` and `CHANNEL3_API_KEY` must
+be configured for live search; otherwise the relevant provider configuration
+error is returned (AI ranking falls back to Channel3 ordering).
+
+Channel3's documented product response currently does not provide product
+ratings, so the API does not offer a `TOP_RATED` sort or claim that an item is
+highly rated. Add that option only when a trusted rating field is available.
 
 ## Checkout and payment
+
+The PayPal-oriented aliases below use the same authenticated checkout service,
+saved product candidates, policy checks, budget reservations, and
+`payment_transactions` records as the versioned checkout APIs. They do not
+accept a client-supplied amount or price.
+
+`POST /api/payments/create` requires `Idempotency-Key` and a CSRF token:
+
+```json
+{
+  "searchSessionId": "c1be5d61-887d-4c72-9067-13222cfe624b",
+  "candidateId": "769812c6-9805-42ec-af81-14ad731a28cb"
+}
+```
+
+The response contains the PayPal `orderId`, `approvalUrl`, local checkout
+session ID, amount, currency, and status. Redirect the buyer to `approvalUrl`.
+After PayPal returns the buyer to the configured return URL, call capture.
+
+```json
+{
+  "checkoutSessionId": "101",
+  "orderId": "PAYPAL_ORDER_ID",
+  "status": "APPROVAL_PENDING",
+  "amount": "40.00",
+  "currency": "USD",
+  "approvalUrl": "https://www.sandbox.paypal.com/checkoutnow?token=PAYPAL_ORDER_ID",
+  "captureId": null
+}
+```
+
+`POST /api/payments/{orderId}/capture` captures the authenticated owner's
+approved order. It requires a CSRF token and returns the local capture status,
+capture ID, amount, and currency. PayPal capture details are checked against
+the persisted reservation before the transaction is marked complete.
+
+`GET /api/payments/{orderId}` retrieves the PayPal order status and reconciles
+the owner-scoped local record. Completed status is persisted only after the
+PayPal reference, capture ID, amount, and currency match the local checkout.
+Provider timeouts or mismatches leave the reservation held for reconciliation.
+
+The existing checkout cancellation operation remains available at
+`POST /api/v1/checkout-sessions/{checkoutSessionId}/cancel`. A reservation is
+released only after PayPal confirms that no capture has completed.
+
+PayPal calls use OAuth client credentials (`POST /v1/oauth2/token`), Orders
+v2 (`POST /v2/checkout/orders`, `GET /v2/checkout/orders/{id}`, and
+`POST /v2/checkout/orders/{id}/capture`) against the official Sandbox host.
+PayPal credentials must be provided through `PAYPAL_CLIENT_ID` and
+`PAYPAL_CLIENT_SECRET`; never put them in request bodies or frontend code.
 
 `POST /api/v1/checkout-sessions` requires an `Idempotency-Key` header and a
 candidate from the signed-in user's search session:
@@ -210,6 +348,33 @@ newest first.
 reservations, remaining budget, completed orders, and the order limit for the
 week calculated in the policy time zone.
 
+## Shopping profile and search history
+
+`GET /api/v1/shopping/preferences` returns the signed-in user's saved profile.
+`PUT /api/v1/shopping/preferences` replaces it with `preferredCategories`,
+`preferredBrands`, `preferredRetailers`, `keywords`, and an optional `maxPrice`
+and `currencyCode` pair. Lists default to empty when omitted. A budget and its
+currency must be supplied together. These values are user-owned profile data;
+the spending policy remains authoritative at search and checkout.
+
+`GET /api/v1/shopping/search-history?page=0&size=20` returns the signed-in user's
+search sessions newest first. `size` is limited to 1–100. Each entry includes
+the submitted and normalized query, effective maximum price, and timestamp.
+Search history is scoped to the authenticated account.
+
+Example preferences request:
+
+```json
+{
+  "preferredCategories": ["laptops"],
+  "preferredBrands": ["Lenovo", "Dell"],
+  "preferredRetailers": ["store.example"],
+  "keywords": ["lightweight", "long battery life"],
+  "maxPrice": 1200.00,
+  "currencyCode": "USD"
+}
+```
+
 ## Errors
 
 Errors use a stable envelope:
@@ -225,4 +390,41 @@ Errors use a stable envelope:
 Common codes include `VALIDATION_FAILED`, `POLICY_NOT_FOUND`,
 `POLICY_LIMIT_EXCEEDED`, `ORDER_FREQUENCY_LIMIT_EXCEEDED`,
 `PRODUCT_PROVIDER_NOT_CONFIGURED`, `PRODUCT_PROVIDER_TIMEOUT`,
+`PRODUCT_PROVIDER_ERROR`, `CHANNEL3_RATE_LIMIT_EXCEEDED`,
+`GEMINI_NOT_CONFIGURED`, `GEMINI_TIMEOUT`, `GEMINI_PROVIDER_ERROR`,
+`GEMINI_INVALID_INTENT`,
 `PAYMENT_PROVIDER_NOT_CONFIGURED`, and `PAYMENT_CAPTURE_UNCONFIRMED`.
+
+Authentication, authorization, and application errors use the same `{code,
+message, details}` JSON envelope. Rate limits include `Retry-After`. Gemini calls
+are limited to 20 requests per minute per signed-in user; Channel3 calls are
+limited to 100 per minute. Provider connect/read timeouts default to 5/20
+seconds and can be changed with `SPENDWISE_HTTP_CONNECT_TIMEOUT_SECONDS` and
+`SPENDWISE_HTTP_READ_TIMEOUT_SECONDS`. Channel3 searches and lookups, Gemini
+generation, PayPal authentication, and webhook verification retry at most once
+on HTTP 429 or 5xx transient responses. Uncertain network failures are not
+retried for Gemini or PayPal payment operations.
+
+## PayPal webhook
+
+Register `POST /api/webhooks/paypal` in the PayPal Developer Dashboard and set
+the resulting webhook ID as `PAYPAL_WEBHOOK_ID`. The listener verifies the
+PayPal transmission headers and complete event through PayPal's
+`/v1/notifications/verify-webhook-signature` API. Invalid signatures return
+`401 PAYPAL_WEBHOOK_INVALID`; verification outages return a retryable 5xx
+response. Verified checkout/capture events trigger an authenticated PayPal order
+status lookup. Spendwise updates payment state only after the live status,
+reference, amount, currency, and capture ID match its stored checkout. Duplicate
+events only repeat the idempotent reconciliation lookup.
+
+## Test and load workflows
+
+- `mvn -f backend/pom.xml test` runs unit, controller, mocked provider, and
+  PostgreSQL Testcontainers tests. The PostgreSQL test is skipped automatically
+  when Docker is unavailable.
+- `mvn -f backend/pom.xml verify -DskipProviderITs=false` also discovers the
+  separate provider connectivity test. Set `SPENDWISE_EXTERNAL_INTEGRATION_TESTS=true`
+  and provide Gemini, Channel3, and PayPal Sandbox credentials to run it.
+- `k6 run load-tests/spendwise-api.js` exercises the authenticated search-history
+  endpoint. Set `SPENDWISE_BASE_URL` and `SPENDWISE_SESSION_COOKIE` first; use
+  `SPENDWISE_LOAD_PATH` to target another authenticated read endpoint.

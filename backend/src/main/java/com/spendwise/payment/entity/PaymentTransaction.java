@@ -136,6 +136,19 @@ public class PaymentTransaction {
         this.status = "REQUIRES_RECONCILIATION";
     }
 
+    public void syncProviderStatus(String providerStatus, String captureId, Instant completedAt) {
+        if ("COMPLETED".equals(providerStatus) && captureId != null && completedAt != null) {
+            markCompleted(captureId, completedAt);
+        } else if ("VOIDED".equals(providerStatus) && ("APPROVED".equals(status)
+                || "REQUIRES_RECONCILIATION".equals(status))) {
+            markCancelled();
+        } else if ("CREATED".equals(providerStatus) || "APPROVED".equals(providerStatus)) {
+            if ("CAPTURING".equals(status) || "REQUIRES_RECONCILIATION".equals(status)) {
+                markApproved();
+            }
+        }
+    }
+
     public Long getId() { return id; }
     public String getOwnerId() { return ownerId; }
     public String getProductId() { return productId; }

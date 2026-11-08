@@ -6,13 +6,13 @@ Spendwise is a collaborative cloud-connected finance and
 expense-management application.
 
 This repository currently uses: - Java 21 - Spring Boot - PostgreSQL
-hosted on Supabase - Spring Data JPA / Hibernate - Flyway for database
+through standard JDBC configuration - Spring Data JPA / Hibernate - Flyway for database
 migrations - Docker and Docker Compose - GitHub for version control and
 pull-request collaboration
 
 The backend is built as a Spring Boot application and connects to
-Supabase PostgreSQL through environment variables. The repository has a
-Docker-based runtime setup.
+PostgreSQL through environment variables. Docker Compose provides a local
+PostgreSQL service; deployments can use any compatible PostgreSQL host.
 
 Treat the existing codebase, README, migrations, and configuration as
 the source of truth. Do not assume a feature exists merely because it is
@@ -64,7 +64,7 @@ common in a finance application.
 
 ## Database and persistence rules
 
--   Supabase PostgreSQL is the shared cloud database.
+-   Local development uses the PostgreSQL service in Docker Compose. Deployed environments may use any compatible PostgreSQL server.
 -   Read the existing Flyway migrations and entity mappings before
     changing the schema.
 -   Treat Flyway migrations as the source of truth for schema evolution.
@@ -94,8 +94,7 @@ common in a finance application.
     required environment variable.
 -   Do not overwrite or expose a user's existing local configuration
     without checking first.
--   Do not change Supabase connection details or credentials unless the
-    task requires it.
+-   Keep PostgreSQL connection settings in environment variables and preserve compatibility with standard PostgreSQL JDBC URLs.
 
 ## Docker and runtime
 
@@ -117,8 +116,7 @@ common in a finance application.
     validation, authorization, and persistence behavior.
 -   Prefer focused unit tests for isolated business logic and
     integration tests when database or Spring wiring is involved.
--   Do not make tests depend on the shared production-like Supabase
-    database.
+-   Keep tests independent of shared databases; use mocks or an isolated PostgreSQL instance.
 -   Run the most relevant tests first, then broader checks when
     practical.
 -   Report exactly which commands were run and whether they passed. If a

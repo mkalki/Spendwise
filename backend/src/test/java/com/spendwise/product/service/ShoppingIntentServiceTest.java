@@ -27,4 +27,14 @@ class ShoppingIntentServiceTest {
         assertThat(intent.requestedMaxPrice()).isNull();
         assertThat(intent.keywords()).isEqualTo("comfortable running shoes");
     }
+
+    @Test
+    void extractsIndianRupeeBudgetAndCurrencyFromNaturalLanguage() {
+        ShoppingIntentService.ParsedIntent intent =
+                service.parse("Find me a laptop under ₹70,000 for programming");
+
+        assertThat(intent.requestedMaxPrice()).isEqualByComparingTo(new BigDecimal("70000"));
+        assertThat(intent.requestedCurrency()).isEqualTo("INR");
+        assertThat(intent.keywords()).isEqualTo("Find me a laptop for programming");
+    }
 }

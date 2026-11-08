@@ -16,3 +16,4 @@ backend/src/main/resources/application-local.yml
 *.iml
 .DS_Store
 Thumbs.db
+PRD.md

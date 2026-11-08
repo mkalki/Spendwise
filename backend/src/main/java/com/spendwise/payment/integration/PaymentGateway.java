@@ -10,6 +10,8 @@ public interface PaymentGateway {
 
     boolean canCancelOrder(String paypalOrderId);
 
+    OrderStatus getOrderStatus(String paypalOrderId);
+
     record OrderCreation(String orderId, String approvalUrl) {
     }
 
@@ -18,5 +20,9 @@ public interface PaymentGateway {
             String captureId,
             BigDecimal amount,
             String currencyCode) {
+    }
+
+    record OrderStatus(
+            String status, String referenceId, String captureId, BigDecimal amount, String currencyCode) {
     }
 }

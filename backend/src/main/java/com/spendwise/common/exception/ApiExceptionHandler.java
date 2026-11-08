@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -23,8 +24,14 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ApiError> handleApiException(ApiException exception) {
-        return ResponseEntity.status(exception.getStatus())
-                .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getDetails()));
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(exception.getStatus());
+        if (exception instanceof com.spendwise.common.security.Channel3UserRateLimiter.Channel3RateLimitExceededException limit) {
+            response.header(HttpHeaders.RETRY_AFTER, Long.toString(limit.getRetryAfterSeconds()));
+        }
+        if (exception instanceof com.spendwise.common.security.GeminiUserRateLimiter.GeminiRateLimitExceededException limit) {
+            response.header(HttpHeaders.RETRY_AFTER, Long.toString(limit.getRetryAfterSeconds()));
+        }
+        return response.body(new ApiError(exception.getCode(), exception.getMessage(), exception.getDetails()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

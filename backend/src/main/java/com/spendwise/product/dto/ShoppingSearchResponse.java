@@ -8,7 +8,8 @@ public record ShoppingSearchResponse(
         ShoppingIntent intent,
         List<ProductCandidateView> eligibleCandidates,
         List<ProductCandidateView> rejectedCandidates,
-        String recommendation) {
+        String recommendation,
+        ShoppingSortBy sortBy) {
 
     public record ShoppingIntent(
             String normalizedQuery,

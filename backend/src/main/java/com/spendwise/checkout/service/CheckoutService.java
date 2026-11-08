@@ -6,6 +6,7 @@ import com.spendwise.checkout.dto.TransactionHistoryResponse;
 import com.spendwise.checkout.dto.TransactionHistoryResponse.TransactionView;
 import com.spendwise.checkout.dto.TransactionSummaryResponse;
 import com.spendwise.common.exception.ApiException;
+import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.payment.entity.PaymentTransaction;
 import com.spendwise.payment.integration.PaymentGateway;
 import com.spendwise.payment.integration.PaymentProviderException;
@@ -42,6 +43,7 @@ public class CheckoutService {
     private static final long RESERVATION_MINUTES = 30;
 
     private final Channel3Client channel3Client;
+    private final Channel3UserRateLimiter channel3RateLimiter;
     private final PaymentGateway paymentGateway;
     private final SpendingPolicyRepository policyRepository;
     private final PolicyEngine policyEngine;
@@ -51,6 +53,7 @@ public class CheckoutService {
 
     public CheckoutService(
             Channel3Client channel3Client,
+            Channel3UserRateLimiter channel3RateLimiter,
             PaymentGateway paymentGateway,
             SpendingPolicyRepository policyRepository,
             PolicyEngine policyEngine,
@@ -58,6 +61,7 @@ public class CheckoutService {
             PaymentTransactionRepository transactionRepository,
             PlatformTransactionManager transactionManager) {
         this.channel3Client = channel3Client;
+        this.channel3RateLimiter = channel3RateLimiter;
         this.paymentGateway = paymentGateway;
         this.policyRepository = policyRepository;
         this.policyEngine = policyEngine;
@@ -103,7 +107,7 @@ public class CheckoutService {
         SpendingPolicy policy = policyRepository.findByOwnerId(ownerId)
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND, "POLICY_NOT_FOUND", "No spending policy has been configured."));
-        RefreshedOffer refreshed = refreshOffer(candidate, policy);
+        RefreshedOffer refreshed = refreshOffer(ownerId, candidate, policy);
         PaymentTransaction reserved = reserve(ownerId, candidate, refreshed, idempotencyKey);
 
         PaymentGateway.OrderCreation order;
@@ -153,25 +157,29 @@ public class CheckoutService {
             PaymentTransaction transaction = findForUpdate(ownerId, checkoutId);
             Instant now = Instant.now();
             if ("COMPLETED".equals(transaction.getStatus())) {
-                return new CaptureStart(transaction, false, true);
+                return new CaptureStart(transaction, false, true, false, false);
+            }
+            if ("CAPTURING".equals(transaction.getStatus())) {
+                return new CaptureStart(transaction, false, false, true, false);
+            }
+            if ("REQUIRES_RECONCILIATION".equals(transaction.getStatus())) {
+                return new CaptureStart(transaction, false, false, false, true);
             }
             if (transaction.getReservationExpiresAt() != null
                     && !transaction.getReservationExpiresAt().isAfter(now)
                     && ("APPROVED".equals(transaction.getStatus()) || "CREATED".equals(transaction.getStatus()))) {
                 transaction.markExpired();
                 transactionRepository.save(transaction);
-                return new CaptureStart(transaction, true, false);
+                return new CaptureStart(transaction, true, false, false, false);
             }
-            if (!"APPROVED".equals(transaction.getStatus())
-                    && !"REQUIRES_RECONCILIATION".equals(transaction.getStatus())
-                    && !"CAPTURING".equals(transaction.getStatus())) {
+            if (!"APPROVED".equals(transaction.getStatus())) {
                 throw conflict("CHECKOUT_NOT_CAPTUREABLE", "Checkout is not ready to capture.");
             }
             if (!StringUtils.hasText(transaction.getPaypalOrderId())) {
                 throw conflict("PAYMENT_ORDER_UNCONFIRMED", "The PayPal order has not been confirmed yet.");
             }
             transaction.markCapturing();
-            return new CaptureStart(transactionRepository.save(transaction), false, false);
+            return new CaptureStart(transactionRepository.save(transaction), false, false, false, false);
         });
 
         if (start.expired()) {
@@ -179,6 +187,21 @@ public class CheckoutService {
         }
         if (start.alreadyCompleted()) {
             return CheckoutResponse.from(start.transaction());
+        }
+        if (start.inProgress()) {
+            throw conflict("CAPTURE_IN_PROGRESS", "A PayPal capture is already being processed.");
+        }
+        if (start.needsReconciliation()) {
+            PaymentTransaction reconciled = getPaymentByPaypalOrderId(
+                    ownerId, start.transaction().getPaypalOrderId());
+            if ("COMPLETED".equals(reconciled.getStatus())) {
+                return CheckoutResponse.from(reconciled);
+            }
+            if (!"APPROVED".equals(reconciled.getStatus())) {
+                throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_CAPTURE_UNCONFIRMED",
+                        "PayPal did not confirm the order status. The reservation remains held.");
+            }
+            return capture(ownerId, checkoutId);
         }
 
         PaymentGateway.CaptureResult capture;
@@ -215,18 +238,14 @@ public class CheckoutService {
                     "PayPal capture details did not match the reserved checkout.");
         }
 
-        PaymentTransaction completed = transactions.execute(status -> {
-            PaymentTransaction current = findForUpdate(ownerId, checkoutId);
-            if ("COMPLETED".equals(current.getStatus())) {
-                return current;
-            }
-            if (!"CAPTURING".equals(current.getStatus())) {
-                throw conflict("CHECKOUT_STATE_CHANGED", "Checkout state changed while capture was processing.");
-            }
-            current.markCompleted(capture.captureId(), Instant.now());
-            return transactionRepository.save(current);
-        });
-        return CheckoutResponse.from(completed);
+        PaymentTransaction verified = getPaymentByPaypalOrderId(ownerId, start.transaction().getPaypalOrderId());
+        if (!"COMPLETED".equals(verified.getStatus())
+                || !capture.captureId().equals(verified.getPaypalCaptureId())) {
+            updateStatus(ownerId, checkoutId, PaymentTransaction::markRequiresReconciliation);
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_CAPTURE_UNCONFIRMED",
+                    "PayPal did not confirm the captured order status. The reservation remains held.");
+        }
+        return CheckoutResponse.from(verified);
     }
 
     public CheckoutResponse cancel(String ownerId, Long checkoutId) {
@@ -281,6 +300,60 @@ public class CheckoutService {
             return transactionRepository.save(current);
         });
         return CheckoutResponse.from(cancelled);
+    }
+
+    public PaymentTransaction getPaymentByPaypalOrderId(String ownerId, String paypalOrderId) {
+        PaymentTransaction transaction = transactionRepository.findByOwnerIdAndPaypalOrderId(ownerId, paypalOrderId)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND, "PAYMENT_NOT_FOUND", "The payment was not found."));
+        if (!StringUtils.hasText(paypalOrderId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "PAYMENT_NOT_FOUND", "The payment was not found.");
+        }
+        PaymentGateway.OrderStatus providerStatus;
+        try {
+            providerStatus = paymentGateway.getOrderStatus(paypalOrderId);
+        } catch (PaymentProviderNotConfiguredException exception) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "PAYMENT_PROVIDER_NOT_CONFIGURED",
+                    "PayPal status is unavailable because the provider is not configured.");
+        } catch (PaymentProviderTimeoutException exception) {
+            throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "PAYMENT_STATUS_UNCONFIRMED",
+                    "PayPal did not confirm the payment status.");
+        } catch (PaymentProviderRejectedException | PaymentProviderException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_STATUS_UNCONFIRMED",
+                    "PayPal did not confirm the payment status.");
+        }
+        if (providerStatus == null
+                || !("spendwise-" + transaction.getId()).equals(providerStatus.referenceId())) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_STATUS_MISMATCH",
+                    "PayPal payment details did not match this checkout.");
+        }
+        if (providerStatus.amount() == null
+                || providerStatus.amount().compareTo(transaction.getAmount()) != 0
+                || !transaction.getCurrencyCode().equals(providerStatus.currencyCode())
+                || ("COMPLETED".equals(providerStatus.status()) && providerStatus.captureId() == null)) {
+            updateStatus(ownerId, transaction.getId(), PaymentTransaction::markRequiresReconciliation);
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_STATUS_MISMATCH",
+                    "PayPal payment details did not match this checkout.");
+        }
+        return updateStatus(ownerId, transaction.getId(), current ->
+                current.syncProviderStatus(providerStatus.status(), providerStatus.captureId(), Instant.now()));
+    }
+
+    public PaymentTransaction getOwnedPayment(String ownerId, String paypalOrderId) {
+        return transactionRepository.findByOwnerIdAndPaypalOrderId(ownerId, paypalOrderId)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND, "PAYMENT_NOT_FOUND", "The payment was not found."));
+    }
+
+    public void reconcilePaypalOrder(String paypalOrderId) {
+        transactionRepository.findByPaypalOrderId(paypalOrderId)
+                .ifPresent(transaction -> getPaymentByPaypalOrderId(transaction.getOwnerId(), paypalOrderId));
+    }
+
+    public PaymentTransaction getOwnedPaymentById(String ownerId, Long id) {
+        return transactionRepository.findByOwnerIdAndId(ownerId, id)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND, "PAYMENT_NOT_FOUND", "The payment was not found."));
     }
 
     public TransactionHistoryResponse history(String ownerId) {
@@ -360,9 +433,10 @@ public class CheckoutService {
         });
     }
 
-    private RefreshedOffer refreshOffer(ProductCandidate candidate, SpendingPolicy policy) {
+    private RefreshedOffer refreshOffer(String ownerId, ProductCandidate candidate, SpendingPolicy policy) {
         JsonNode product;
         try {
+            channel3RateLimiter.acquire(ownerId);
             product = channel3Client.getProduct(
                     candidate.getChannel3ProductId(), policy.getCountryCode(), policy.getCurrencyCode());
         } catch (Channel3NotConfiguredException exception) {
@@ -499,6 +573,11 @@ public class CheckoutService {
     private record RefreshedOffer(BigDecimal amount, String currencyCode, String merchantName, String offerUrl) {
     }
 
-    private record CaptureStart(PaymentTransaction transaction, boolean expired, boolean alreadyCompleted) {
+    private record CaptureStart(
+            PaymentTransaction transaction,
+            boolean expired,
+            boolean alreadyCompleted,
+            boolean inProgress,
+            boolean needsReconciliation) {
     }
 }

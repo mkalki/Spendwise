@@ -10,14 +10,14 @@ Channel3 discovery links and a PayPal Sandbox payment are separate actions: the 
 
 - Java 21, Spring Boot 3.5, Maven, PostgreSQL
 - Channel3 product discovery and PayPal Orders v2 Sandbox integrations
-- Spring AI for richer intent extraction and recommendations remains planned
+- Gemini intent extraction and ID-only product ranking over actual Channel3 search results
 
 ## Local setup
 
-1. Copy `.env.example` to `.env` and set a local PostgreSQL password.
-2. Start PostgreSQL and the API with `docker compose up -d --build`. Compose gives the backend the same database credentials and waits for PostgreSQL to become healthy.
+1. Copy `.env.example` to `.env` and set local PostgreSQL credentials plus any provider credentials you plan to use.
+2. Start PostgreSQL and the API with `docker compose up -d --build`. Compose starts a PostgreSQL 18 container with a named persistent volume, waits for its health check, then starts the backend against that database.
 3. Flyway applies pending migrations from `backend/src/main/resources/db/migration` on API startup; Hibernate validates the mapped schema and does not create tables. Add schema changes as new `V2__...sql`, `V3__...sql` files; do not edit a migration after it has run in a shared database.
-4. Check the API at `http://localhost:8080/api/health`.
+4. Check the API at `http://localhost:8080/api/health` and PostgreSQL on `localhost:${POSTGRES_PORT:-5432}`.
 
 ### Google sign-in
 
@@ -47,9 +47,38 @@ PBKDF2 hashes. Google login and signup are available at
 creates the account when its verified email is unused.
 
 Set `CHANNEL3_API_KEY` to enable live shopping search and `PAYPAL_CLIENT_ID` /
-`PAYPAL_CLIENT_SECRET` to enable Sandbox checkout. Configure the corresponding
-return/cancel URLs for your frontend. Keep real values in `.env`, which is
+`PAYPAL_CLIENT_SECRET` to enable Sandbox checkout. Set `PAYPAL_WEBHOOK_ID` to
+the registered PayPal webhook ID to enable signature verification. Configure
+the corresponding return/cancel URLs for your frontend. Keep real values in `.env`, which is
 ignored by Git. API contracts and examples are in `docs/api-contracts.md`.
+Channel3 searches request 10 provider results by default and are limited to 100
+requests per minute per signed-in user. Gemini endpoints are limited to 20
+requests per minute per signed-in user. External requests use configurable
+5-second connect and 20-second response timeouts by default. Read-only Channel3
+calls and Gemini calls retry once on transient HTTP statuses; PayPal operations
+do not retry uncertain network failures.
+
+### Gemini connectivity
+
+Set `GEMINI_API_KEY` in `.env` to enable the authenticated
+`POST /api/v1/ai/generate` endpoint. `GEMINI_MODEL` defaults to
+`gemini-3.8-flash`. The backend sends prompts to Gemini using Spring `RestClient`;
+the key stays on the server. The generic generation endpoint is separate from
+Channel3. Product search uses Gemini to structure the request, calls Channel3
+for current offers, and can ask Gemini to rank only returned candidate IDs.
+Product titles, prices, merchants, availability, and URLs always come from
+Channel3. Customers can select `LOWEST_PRICE`, `BEST_MATCH`, or
+`AI_RECOMMENDED` and filter by price, category, retailer, availability, and
+sale status. Channel3's documented product response does not expose ratings,
+so top-rated sorting is unavailable. Swagger UI is available at
+`http://localhost:8080/swagger-ui/index.html`.
+
+PayPal webhooks are received at `POST /api/webhooks/paypal`. The endpoint is
+public for PayPal delivery, but verifies the transmission headers and event
+body with PayPal before processing. For checkout and capture events, Spendwise
+fetches order status from PayPal and checks the reference, amount, currency, and
+capture ID before changing local payment state. Capture requests are serialized
+per order; a second request while one is in progress receives a conflict.
 
 ## Project layout
 
@@ -57,7 +86,9 @@ ignored by Git. API contracts and examples are in `docs/api-contracts.md`.
 - `backend/Dockerfile` — backend build and runtime image
 - `docs/api-contracts.md` — frontend/backend response contracts
 - `docker-compose.yml` — local PostgreSQL service
+- `spendwise-postgres-data` — persistent local PostgreSQL data volume
 - `backend/src/main/resources/db/migration/` — versioned Flyway SQL migrations
+- `load-tests/spendwise-api.js` — k6 load test for an authenticated API route
 
 The first migration creates `spending_policies`, `payment_transactions`, and `audit_events`, then seeds the demo policy ($60 per item, $100 per order, $150 per week, one order per week, USD/US).
 
@@ -69,10 +100,16 @@ The backend exposes these authenticated, owner-scoped frontend APIs under
 | API | Purpose |
 | --- | --- |
 | `GET/PUT /policies/active` | Read or update the signed-in user's spending limits. |
-| `POST /shopping/search` | Search Channel3 using the user's policy and return eligible and rejected offers. |
+| `POST /shopping/search` | Search Channel3 using customer filters and return eligible and rejected offers in the selected ranking order. |
+| `GET /shopping/preferences` | Read the signed-in user's saved shopping preferences. |
+| `PUT /shopping/preferences` | Save preferred categories, brands, retailers, keywords, and an optional budget. |
+| `GET /shopping/search-history` | List the signed-in user's past searches (`page` defaults to 0; `size` defaults to 20 and is capped at 100). |
 | `POST /checkout-sessions` | Recheck an offer and policy, reserve weekly budget/order capacity, then create a PayPal Sandbox order. Requires `Idempotency-Key`. |
 | `POST /checkout-sessions/{id}/capture` | Capture the user's approved Sandbox order. |
 | `POST /checkout-sessions/{id}/cancel` | Cancel checkout and release its reservation only when payment state is confirmed. |
+| `POST /api/payments/create` | Create an owner-scoped PayPal Sandbox order from a stored, policy-eligible search candidate. Requires `Idempotency-Key`; returns the PayPal approval URL. |
+| `POST /api/payments/{orderId}/capture` | Capture the owner's approved PayPal order and persist the verified result. |
+| `GET /api/payments/{orderId}` | Read PayPal status and reconcile it with the owner-scoped payment record. |
 | `GET /transactions` | List the signed-in user's transactions. |
 | `GET /transactions/summary` | Return weekly spend, active reservations, remaining budget, and order counts. |
 
@@ -91,13 +128,14 @@ therefore use the same generated API definition.
 The spec documents the session cookie and CSRF header security requirements.
 To try secured endpoints in Swagger UI, sign in to the API in that browser
 first; obtain a CSRF token from `GET /api/auth/csrf` before trying a
-state-changing request. Natural-language price-limit extraction and
-recommendations are deterministic for now; Spring AI integration and the
-frontend remain to be implemented.
+state-changing request. Shopping search uses Gemini to structure the request
+before Channel3 search. AI ranking can only reorder eligible Channel3 result
+IDs; policy enforcement and all product facts remain server-controlled.
+Spring AI framework adoption and the frontend remain future work.
 
 Schema additions are in `V2__add_shopping_and_checkout_api.sql`,
 `V3__retain_search_price_limits.sql`, `V4__create_user_accounts.sql`, and
-`V5__repair_payment_candidate_reference.sql`. The repair migration restores the
+`V5__repair_payment_candidate_reference.sql`, and `V6__add_shopping_preferences.sql`. The repair migration restores the
 optional candidate foreign key if a database drifted after V2. Earlier
 migrations are not edited.
 
@@ -109,9 +147,45 @@ Run the backend unit and HTTP/security API integration tests with:
 mvn -f backend\pom.xml test
 ```
 
-The test suite covers policy limits and intent parsing, request validation and
-serialization, authenticated-user propagation, unauthenticated access and CSRF,
-and provider-host restrictions. API integration tests use mocked services;
-they do not apply migrations to PostgreSQL or make live Channel3/PayPal calls.
-Database and provider end-to-end flows still need verification against an
-isolated PostgreSQL database and configured provider Sandbox credentials.
+The suite covers policy limits, intent parsing, request validation, authenticated
+owner propagation, API error handling, Gemini/Channel3 client failures, AI
+ranking, PayPal capture state, webhook signature verification, retries, and
+Swagger. A Testcontainers PostgreSQL test applies Flyway migrations and checks
+owner-scoped persistence when Docker is available. Provider mocks are used in CI.
+
+For opt-in live provider connectivity tests, set the provider environment
+variables and run:
+
+```powershell
+$env:SPENDWISE_EXTERNAL_INTEGRATION_TESTS = "true"
+mvn -f backend\pom.xml verify -DskipProviderITs=false
+```
+
+This checks Gemini generation, Channel3 search, and PayPal Sandbox OAuth. A full
+PayPal buyer approval/capture/webhook round trip still requires a registered
+Sandbox webhook and a Sandbox buyer account.
+
+For database-backed load testing, install k6, sign in to get a session cookie,
+then run:
+
+```powershell
+$env:SPENDWISE_BASE_URL = "http://localhost:8080"
+$env:SPENDWISE_SESSION_COOKIE = "JSESSIONID=your-session-cookie"
+k6 run load-tests/spendwise-api.js
+```
+
+## Implemented features and remaining work
+
+| Area | Status |
+| --- | --- |
+| Google OAuth and password sessions | Implemented; live Google sign-in requires configured OAuth credentials. |
+| Gemini integration and AI product ranking | Implemented with bounded timeouts, transient retries, and a 20-request/minute user limit. |
+| Channel3 product search | Implemented with filters, 100 requests/minute per user, provider timeouts, and retry handling. |
+| PayPal Sandbox checkout | Implemented with owner-scoped idempotency, serialized captures, and PayPal status verification before marking paid. |
+| PayPal webhook verification | Implemented at `POST /api/webhooks/paypal`; requires `PAYPAL_WEBHOOK_ID` from the registered PayPal webhook. |
+| Shopping preferences and search history | Profile persistence and owner-scoped retrieval are implemented. Saved preferences are not yet automatically applied to AI ranking. |
+| Error handling, validation, and Swagger | Implemented with stable JSON API errors and documented routes. |
+| Unit, controller, and database tests | Implemented; PostgreSQL Testcontainers coverage is skipped when Docker is unavailable. |
+| Load testing | k6 script added for authenticated, database-backed API requests. |
+| Frontend | Not implemented; the repository currently contains the backend API. |
+| Live Sandbox lifecycle test | Still needs a configured webhook, Sandbox buyer approval, and end-to-end confirmation in the developer account. |

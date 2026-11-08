@@ -21,7 +21,7 @@ public class OpenApiConfiguration {
                         .version("v1")
                         .description("""
                                 APIs for account signup and login, managing spending policies, searching products,
-                                creating PayPal Sandbox checkouts, and viewing transactions. Browser API calls use
+                                generating Gemini responses, creating and verifying PayPal Sandbox payments, and viewing transactions. Browser API calls use
                                 an authenticated HTTP session. State-changing requests also require the CSRF token from
                                 GET /api/auth/csrf in the X-XSRF-TOKEN header.
                                 """))
@@ -49,6 +49,9 @@ public class OpenApiConfiguration {
                         || path.equals("/api/auth/login")
                         || path.equals("/api/auth/google/login")
                         || path.equals("/api/auth/google/signup");
+                if (path.equals("/api/webhooks/paypal")) {
+                    return;
+                }
                 if (publicAuth) {
                     if (HttpMethod.POST.matches(method.name())) {
                         operation.addSecurityItem(new SecurityRequirement().addList("CsrfToken"));

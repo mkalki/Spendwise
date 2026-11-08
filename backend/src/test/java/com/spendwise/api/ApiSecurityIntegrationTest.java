@@ -8,6 +8,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.spendwise.auth.service.AccountOidcUserService;
 import com.spendwise.common.security.SecurityConfiguration;
+import com.spendwise.payment.integration.PayPalWebhookVerifier;
+import com.spendwise.payment.service.PayPalWebhookService;
+import com.spendwise.payment.controller.PayPalWebhookController;
 import com.spendwise.policy.controller.SpendingPolicyController;
 import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.service.SpendingPolicyService;
@@ -18,10 +21,15 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest(controllers = SpendingPolicyController.class)
+@WebMvcTest(controllers = {SpendingPolicyController.class, PayPalWebhookController.class})
 @Import(SecurityConfiguration.class)
+@TestPropertySource(properties = {
+    "spring.security.oauth2.client.registration.google.client-id=test-client-id",
+    "spring.security.oauth2.client.registration.google.client-secret=test-client-secret"
+})
 class ApiSecurityIntegrationTest {
 
     @Autowired
@@ -36,10 +44,18 @@ class ApiSecurityIntegrationTest {
     @MockitoBean
     private UserDetailsService userDetailsService;
 
+    @MockitoBean
+    private PayPalWebhookVerifier webhookVerifier;
+
+    @MockitoBean
+    private PayPalWebhookService webhookService;
+
     @Test
     void versionedApiRejectsUnauthenticatedRequests() throws Exception {
         mockMvc.perform(get("/api/v1/policies/active"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code")
+                        .value("UNAUTHENTICATED"));
     }
 
     @Test
@@ -66,6 +82,27 @@ class ApiSecurityIntegrationTest {
                         .with(oidcLogin().idToken(token -> token.subject("google-subject")))
                         .contentType("application/json")
                         .content("{}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code")
+                        .value("ACCESS_DENIED"));
+    }
+
+    @Test
+    void publicPaypalWebhookDoesNotRequireSessionOrCsrfToken() throws Exception {
+        when(webhookVerifier.verify(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/webhooks/paypal")
+                        .header("PayPal-Auth-Algo", "SHA256withRSA")
+                        .header("PayPal-Cert-Url", "https://api-m.paypal.com/cert")
+                        .header("PayPal-Transmission-Id", "transmission-1")
+                        .header("PayPal-Transmission-Sig", "signature")
+                        .header("PayPal-Transmission-Time", "2026-11-08T10:00:00Z")
+                        .contentType("application/json")
+                        .content("{\"id\":\"event-1\",\"event_type\":\"IGNORED\",\"resource\":{}}"))
+                .andExpect(status().isNoContent());
     }
 }

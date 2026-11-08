@@ -46,4 +46,25 @@ class OpenApiConfigurationTest {
                 .satisfies(requirement -> assertThat(requirement).containsKey("SpendwiseSession"));
         assertThat(paths.get("/api/health").getGet().getSecurity()).isNull();
     }
+
+    @Test
+    void protectsPayPalPaymentRoutesWithSessionAndCsrf() {
+        Operation createPayment = new Operation();
+        Operation capturePayment = new Operation();
+        Operation paymentStatus = new Operation();
+        Paths paths = new Paths()
+                .addPathItem("/api/payments/create", new PathItem().post(createPayment))
+                .addPathItem("/api/payments/{orderId}/capture", new PathItem().post(capturePayment))
+                .addPathItem("/api/payments/{orderId}", new PathItem().get(paymentStatus));
+        OpenAPI openApi = new OpenAPI().paths(paths);
+
+        configuration.spendwiseSessionSecurity().customise(openApi);
+
+        assertThat(createPayment.getSecurity().get(0).keySet())
+                .containsExactlyInAnyOrder("SpendwiseSession", "CsrfToken");
+        assertThat(capturePayment.getSecurity().get(0).keySet())
+                .containsExactlyInAnyOrder("SpendwiseSession", "CsrfToken");
+        assertThat(paymentStatus.getSecurity()).singleElement()
+                .satisfies(requirement -> assertThat(requirement).containsKey("SpendwiseSession"));
+    }
 }

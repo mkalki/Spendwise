@@ -161,6 +161,7 @@ class SpendwiseApiIntegrationTest {
                         List.of(),
                         List.of(),
                         null,
+                        null,
                         com.spendwise.product.dto.ShoppingSortBy.LOWEST_PRICE));
 
         mockMvc.perform(post("/api/v1/shopping/search")
@@ -183,7 +184,7 @@ class SpendwiseApiIntegrationTest {
                         sessionId,
                         new ShoppingSearchResponse.ShoppingIntent("wireless headphones", "wireless headphones",
                                 null, "USD", "US"),
-                        List.of(), List.of(), null,
+                        List.of(), List.of(), null, null,
                         com.spendwise.product.dto.ShoppingSortBy.LOWEST_PRICE));
 
         mockMvc.perform(post("/api/v1/shopping/search")

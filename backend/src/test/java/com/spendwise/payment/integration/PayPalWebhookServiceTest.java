@@ -4,16 +4,21 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.anyMap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spendwise.checkout.service.CheckoutService;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.payment.service.PayPalWebhookService;
 import org.junit.jupiter.api.Test;
 
 class PayPalWebhookServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final CheckoutService checkoutService = mock(CheckoutService.class);
-    private final PayPalWebhookService webhookService = new PayPalWebhookService(checkoutService);
+    private final AuditService auditService = mock(AuditService.class);
+    private final PayPalWebhookService webhookService = new PayPalWebhookService(checkoutService, auditService);
 
     @Test
     void acknowledgesUnsupportedEventsEvenWhenTheyHaveNoResource() throws Exception {
@@ -23,6 +28,7 @@ class PayPalWebhookServiceTest {
 
         assertThatCode(() -> webhookService.receive(event)).doesNotThrowAnyException();
         verifyNoInteractions(checkoutService);
+        verify(auditService).record(isNull(), eq("PAYPAL_WEBHOOK_RECEIVED"), eq("event-1"), anyMap());
     }
 
     @Test

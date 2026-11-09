@@ -3,6 +3,7 @@ package com.spendwise.product.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.common.exception.ApiException;
 import com.spendwise.product.dto.ShoppingPreferencesRequest;
 import com.spendwise.product.dto.ShoppingPreferencesResponse;
@@ -25,12 +26,14 @@ public class ShoppingProfileService {
     private final ShoppingPreferencesRepository preferencesRepository;
     private final ShoppingSearchSessionRepository searchRepository;
     private final ObjectMapper objectMapper;
+    private final AuditService auditService;
 
     public ShoppingProfileService(ShoppingPreferencesRepository preferencesRepository,
-            ShoppingSearchSessionRepository searchRepository, ObjectMapper objectMapper) {
+            ShoppingSearchSessionRepository searchRepository, ObjectMapper objectMapper, AuditService auditService) {
         this.preferencesRepository = preferencesRepository;
         this.searchRepository = searchRepository;
         this.objectMapper = objectMapper;
+        this.auditService = auditService;
     }
 
     @Transactional(readOnly = true)
@@ -54,7 +57,9 @@ public class ShoppingProfileService {
                 new ShoppingPreferences(ownerId, categories, brands, retailers, keywords,
                         request.maxPrice(), request.currencyCode()));
         entity.update(categories, brands, retailers, keywords, request.maxPrice(), request.currencyCode());
-        return toResponse(preferencesRepository.save(entity));
+        ShoppingPreferences saved = preferencesRepository.save(entity);
+        auditService.record(ownerId, "SHOPPING_PREFERENCES_UPDATED", java.util.Map.of());
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)

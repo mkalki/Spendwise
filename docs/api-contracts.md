@@ -161,14 +161,25 @@ use the active policy currency. Price and other explicit filters are sent to
 Channel3; the minimum price is also enforced on returned offers. A request
 budget currency that conflicts with the active policy is rejected.
 
-For `AI_RECOMMENDED`, Gemini ranks only the eligible candidate IDs returned by
-Channel3. The backend ignores unknown and duplicate IDs, appends omitted
-eligible candidates in Channel3 order, and always builds titles, brands,
-prices, merchants, availability, and URLs from Channel3 data. Gemini receives
-candidate IDs, titles, and brands only and cannot supply product facts. If
-Gemini ranking is unavailable or invalid, the search still returns Channel3
-results ordered by Channel3 relevance. Gemini never authorizes purchases or
-changes policy decisions.
+On every search, the backend loads the signed-in customer's saved preferences.
+A saved `maxPrice` is combined with the request budget and spending-policy cap
+using the strictest applicable amount (only when its currency matches the
+policy). Saved category, brand, retailer, and keyword preferences are supplied
+to Gemini as soft ranking context. Customers can review or change them at any
+time with `GET` and `PUT /api/v1/shopping/preferences`.
+
+Gemini compares the eligible Channel3 offers and returns an explanation for
+each candidate in `recommendationExplanation`, plus a short overall
+`recommendation`. The comparison uses the customer's prompt and saved
+preferences against Channel3 title, brand, merchant, and price data. Those
+commercial facts remain server-sourced from Channel3; Gemini cannot add/remove
+eligible products or affect checkout policy. `AI_RECOMMENDED` orders results
+by that comparison. Other sort choices retain their requested ordering while
+still returning explanations. The response's `comparisonSummary` explains the
+overall match separately from the `recommendation` string that describes the
+selected sort. Unknown and duplicate candidate IDs are ignored.
+If a comparison call fails after the search succeeds, the API returns the
+products without AI explanations and falls back to deterministic ordering.
 
 The backend calls `POST https://api.trychannel3.com/v1/search` with the
 `x-api-key` header and JSON content type. The provider request includes the
@@ -222,11 +233,13 @@ Example provider request:
       "offerUrl": "https://example.test/product",
       "price": "40.00",
       "currencyCode": "USD",
-      "eligible": true
+      "eligible": true,
+      "recommendationExplanation": "Matches your preferred brand and is within your stated budget."
     }
   ],
   "rejectedCandidates": [],
-  "recommendation": "Gemini ranked eligible products returned by Channel3. Product details are from Channel3.",
+  "recommendation": "This offer best matches your requested features and saved preferences.",
+  "comparisonSummary": "It matches your selected brand and keywords while meeting your requested price range.",
   "sortBy": "AI_RECOMMENDED"
 }
 ```

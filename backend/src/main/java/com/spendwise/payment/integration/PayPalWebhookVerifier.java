@@ -1,6 +1,8 @@
 package com.spendwise.payment.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.spendwise.common.config.TransientHttpRetry;
 import com.spendwise.common.exception.ApiException;
 import java.util.LinkedHashMap;
@@ -21,26 +23,41 @@ public class PayPalWebhookVerifier {
     private final RestClient restClient;
     private final PayPalAuthService authService;
     private final String webhookId;
+    private final ObjectMapper objectMapper;
 
     @Autowired
     public PayPalWebhookVerifier(ClientHttpRequestFactory requestFactory, PayPalAuthService authService,
+            ObjectMapper objectMapper,
             @Value("${spendwise.paypal.base-url}") String baseUrl,
             @Value("${spendwise.paypal.webhook-id:}") String webhookId) {
-        this(RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build(), authService, webhookId);
+        this(RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build(), authService, webhookId,
+                objectMapper);
     }
 
     PayPalWebhookVerifier(RestClient restClient, PayPalAuthService authService, String webhookId) {
+        this(restClient, authService, webhookId, new ObjectMapper());
+    }
+
+    PayPalWebhookVerifier(RestClient restClient, PayPalAuthService authService, String webhookId,
+            ObjectMapper objectMapper) {
         this.restClient = restClient;
         this.authService = authService;
         this.webhookId = webhookId;
+        this.objectMapper = objectMapper;
     }
 
     public boolean verify(String authAlgo, String certUrl, String transmissionId,
-            String transmissionSignature, String transmissionTime, JsonNode event) {
+            String transmissionSignature, String transmissionTime, String rawEventJson) {
         if (!StringUtils.hasText(webhookId)) throw new PaymentProviderNotConfiguredException();
         if (!StringUtils.hasText(authAlgo) || !StringUtils.hasText(certUrl)
                 || !StringUtils.hasText(transmissionId) || !StringUtils.hasText(transmissionSignature)
-                || !StringUtils.hasText(transmissionTime) || event == null || !event.isObject()) {
+                || !StringUtils.hasText(transmissionTime) || !StringUtils.hasText(rawEventJson)) {
+            return false;
+        }
+        try {
+            JsonNode event = objectMapper.readTree(rawEventJson);
+            if (event == null || !event.isObject()) return false;
+        } catch (JsonProcessingException exception) {
             return false;
         }
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -50,7 +67,14 @@ public class PayPalWebhookVerifier {
         payload.put("transmission_sig", transmissionSignature);
         payload.put("transmission_time", transmissionTime);
         payload.put("webhook_id", webhookId);
-        payload.put("webhook_event", event);
+        String requestBody;
+        try {
+            String headerJson = objectMapper.writeValueAsString(payload);
+            requestBody = headerJson.substring(0, headerJson.length() - 1)
+                    + ",\"webhook_event\":" + rawEventJson + "}";
+        } catch (JsonProcessingException exception) {
+            throw new PaymentProviderException();
+        }
         try {
             JsonNode response = TransientHttpRetry.execute(() -> restClient.post()
                     .uri("/v1/notifications/verify-webhook-signature")
@@ -58,7 +82,7 @@ public class PayPalWebhookVerifier {
                         headers.setBearerAuth(authService.accessToken());
                         headers.setContentType(MediaType.APPLICATION_JSON);
                     })
-                    .body(payload)
+                    .body(requestBody)
                     .retrieve()
                     .body(JsonNode.class), false);
             return response != null && "SUCCESS".equals(response.path("verification_status").asText());

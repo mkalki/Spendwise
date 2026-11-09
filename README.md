@@ -48,8 +48,11 @@ creates the account when its verified email is unused.
 
 Set `CHANNEL3_API_KEY` to enable live shopping search and `PAYPAL_CLIENT_ID` /
 `PAYPAL_CLIENT_SECRET` to enable Sandbox checkout. Set `PAYPAL_WEBHOOK_ID` to
-the registered PayPal webhook ID to enable signature verification. Configure
-the corresponding return/cancel URLs for your frontend. Keep real values in `.env`, which is
+the webhook registration ID created under the same PayPal Sandbox REST app as
+the client ID and secret. Do not use a webhook event ID (those start with
+`WH-`). Register a public HTTPS URL pointing to `POST /api/webhooks/paypal`;
+PayPal cannot deliver to localhost. Configure the corresponding return/cancel
+URLs for your frontend. Keep real values in `.env`, which is
 ignored by Git. API contracts and examples are in `docs/api-contracts.md`.
 Channel3 searches request 10 provider results by default and are limited to 100
 requests per minute per signed-in user. Gemini endpoints are limited to 20
@@ -74,11 +77,15 @@ so top-rated sorting is unavailable. Swagger UI is available at
 `http://localhost:8080/swagger-ui/index.html`.
 
 PayPal webhooks are received at `POST /api/webhooks/paypal`. The endpoint is
-public for PayPal delivery, but verifies the transmission headers and event
-body with PayPal before processing. For checkout and capture events, Spendwise
-fetches order status from PayPal and checks the reference, amount, currency, and
-capture ID before changing local payment state. Capture requests are serialized
-per order; a second request while one is in progress receives a conflict.
+public for PayPal delivery, but verifies the transmission headers and exact
+received event body with PayPal before processing. Supported checkout/capture
+events reconcile against PayPal order status; refund/reversal events fetch the
+capture from PayPal and check its ID, order ID, amount, and currency before
+updating the transaction. Unknown event types are acknowledged after signature
+verification without changing payment state. Partial refunds keep the original
+order amount counted against weekly spend (a conservative limit); full refunds
+and reversals no longer count as spend. Capture requests are serialized per
+order; a second request while one is in progress receives a conflict.
 
 ## Project layout
 

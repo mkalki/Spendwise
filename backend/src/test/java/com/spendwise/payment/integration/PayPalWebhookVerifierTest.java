@@ -8,8 +8,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -17,17 +15,14 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 class PayPalWebhookVerifierTest {
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     @Test
     void postsEventAndTransmissionHeadersToPayPalVerificationEndpoint() throws Exception {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api-m.sandbox.paypal.com");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         PayPalAuthService auth = mock(PayPalAuthService.class);
         when(auth.accessToken()).thenReturn("access-token");
-        JsonNode event = objectMapper.readTree("""
-                {"id":"event-1","event_type":"PAYMENT.CAPTURE.COMPLETED","resource":{"id":"capture-1"}}
-                """);
+        String event = "{\"id\":\"event-1\",\"event_type\":\"PAYMENT.CAPTURE.COMPLETED\","
+                + "\"resource\":{\"id\":\"capture-1\"}}";
         server.expect(requestTo("https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("""
@@ -54,10 +49,30 @@ class PayPalWebhookVerifierTest {
         server.expect(requestTo("https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature"))
                 .andRespond(withSuccess("{\"verification_status\":\"FAILURE\"}", MediaType.APPLICATION_JSON));
         PayPalWebhookVerifier verifier = new PayPalWebhookVerifier(builder.build(), auth, "webhook-1");
-        JsonNode event = objectMapper.readTree("{\"id\":\"event-1\"}");
+        String event = "{\"id\":\"event-1\"}";
 
         assertThat(verifier.verify("SHA256withRSA", "https://api-m.paypal.com/cert", "transmission-1",
                 "signature", "2026-11-08T10:00:00Z", event)).isFalse();
+        server.verify();
+    }
+
+    @Test
+    void preservesTheExactReceivedEventJsonWhenPostingToPayPal() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api-m.sandbox.paypal.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PayPalAuthService auth = mock(PayPalAuthService.class);
+        when(auth.accessToken()).thenReturn("access-token");
+        String rawEvent = "{ \"id\" : \"event-2\",\n  \"event_type\":\"PAYMENT.CAPTURE.COMPLETED\" }";
+        server.expect(requestTo("https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(request -> assertThat(
+                        ((org.springframework.mock.http.client.MockClientHttpRequest) request).getBodyAsString())
+                        .contains("\"webhook_event\":" + rawEvent))
+                .andRespond(withSuccess("{\"verification_status\":\"SUCCESS\"}", MediaType.APPLICATION_JSON));
+        PayPalWebhookVerifier verifier = new PayPalWebhookVerifier(builder.build(), auth, "webhook-1");
+
+        assertThat(verifier.verify("SHA256withRSA", "https://api-m.paypal.com/cert", "transmission-2",
+                "signature", "2026-11-08T10:00:00Z", rawEvent)).isTrue();
         server.verify();
     }
 }

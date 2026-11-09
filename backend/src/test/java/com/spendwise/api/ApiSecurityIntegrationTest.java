@@ -1,6 +1,8 @@
 package com.spendwise.api;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -16,6 +18,7 @@ import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.service.SpendingPolicyService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -91,8 +94,9 @@ class ApiSecurityIntegrationTest {
     void publicPaypalWebhookDoesNotRequireSessionOrCsrfToken() throws Exception {
         when(webhookVerifier.verify(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(true);
+        String rawEvent = "{ \"id\" : \"event-1\",\n \"event_type\":\"UNSUPPORTED\" }";
 
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/webhooks/paypal")
@@ -102,7 +106,42 @@ class ApiSecurityIntegrationTest {
                         .header("PayPal-Transmission-Sig", "signature")
                         .header("PayPal-Transmission-Time", "2026-11-08T10:00:00Z")
                         .contentType("application/json")
-                        .content("{\"id\":\"event-1\",\"event_type\":\"IGNORED\",\"resource\":{}}"))
+                        .content(rawEvent))
                 .andExpect(status().isNoContent());
+
+        ArgumentCaptor<String> rawBody = ArgumentCaptor.forClass(String.class);
+        verify(webhookVerifier).verify(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), rawBody.capture());
+        org.assertj.core.api.Assertions.assertThat(rawBody.getValue()).isEqualTo(rawEvent);
+    }
+
+    @Test
+    void invalidPaypalSignatureNeverProcessesEvent() throws Exception {
+        when(webhookVerifier.verify(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(false);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/webhooks/paypal")
+                        .header("PayPal-Auth-Algo", "SHA256withRSA")
+                        .header("PayPal-Cert-Url", "https://api-m.paypal.com/cert")
+                        .header("PayPal-Transmission-Id", "transmission-1")
+                        .header("PayPal-Transmission-Sig", "invalid")
+                        .header("PayPal-Transmission-Time", "2026-11-08T10:00:00Z")
+                        .contentType("application/json")
+                        .content("{\"id\":\"event-1\"}"))
+                .andExpect(status().isUnauthorized());
+
+        verify(webhookService, never()).receive(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void webhookRouteReturnsMethodNotAllowedForGet() throws Exception {
+        mockMvc.perform(get("/api/webhooks/paypal"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code")
+                        .value("METHOD_NOT_ALLOWED"));
     }
 }

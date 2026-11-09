@@ -142,7 +142,8 @@ Spring AI framework adoption and the frontend remain future work.
 
 Schema additions are in `V2__add_shopping_and_checkout_api.sql`,
 `V3__retain_search_price_limits.sql`, `V4__create_user_accounts.sql`, and
-`V5__repair_payment_candidate_reference.sql`, and `V6__add_shopping_preferences.sql`. The repair migration restores the
+`V5__repair_payment_candidate_reference.sql`, `V6__add_shopping_preferences.sql`,
+and `V7__track_paypal_refunds.sql`. The repair migration restores the
 optional candidate foreign key if a database drifted after V2. Earlier
 migrations are not edited.
 
@@ -186,11 +187,12 @@ k6 run load-tests/spendwise-api.js
 | Area | Status |
 | --- | --- |
 | Google OAuth and password sessions | Implemented; live Google sign-in requires configured OAuth credentials. |
-| Gemini integration and AI product ranking | Implemented with bounded timeouts, transient retries, and a 20-request/minute user limit. |
+| Gemini integration, product comparison, and explanations | Implemented; explanations compare eligible Channel3 candidates with the customer's prompt and saved preferences. Gemini cannot provide commercial product facts or affect policy eligibility. Calls have bounded timeouts, transient retries, and a 20-request/minute user limit. |
 | Channel3 product search | Implemented with filters, 100 requests/minute per user, provider timeouts, and retry handling. |
 | PayPal Sandbox checkout | Implemented with owner-scoped idempotency, serialized captures, and PayPal status verification before marking paid. |
 | PayPal webhook verification | Implemented at `POST /api/webhooks/paypal`; requires `PAYPAL_WEBHOOK_ID` from the registered PayPal webhook. |
-| Shopping preferences and search history | Profile persistence and owner-scoped retrieval are implemented. Saved preferences are not yet automatically applied to AI ranking. |
+| Shopping preferences and search history | Preferences load automatically for searches; saved maximum price tightens the search cap and other preferences guide AI comparison. Customers can view and update them through the authenticated GET/PUT preferences APIs. |
+| Audit trail | Implemented for policy changes, search starts/results, candidate decisions, preference updates, checkout reservations, PayPal order creation and payment state changes, and verified webhook deliveries. Audit metadata omits raw search text and credentials. |
 | Error handling, validation, and Swagger | Implemented with stable JSON API errors and documented routes. |
 | Unit, controller, and database tests | Implemented; PostgreSQL Testcontainers coverage is skipped when Docker is unavailable. |
 | Load testing | k6 script added for authenticated, database-backed API requests. |

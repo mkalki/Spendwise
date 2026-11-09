@@ -1,5 +1,6 @@
 package com.spendwise.policy.service;
 
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.common.exception.ApiException;
 import com.spendwise.policy.dto.SpendingPolicyRequest;
 import com.spendwise.policy.entity.SpendingPolicy;
@@ -22,9 +23,11 @@ public class SpendingPolicyService {
             "ES", "NL", "SE", "FI", "PT", "CZ", "GR", "RO", "CH", "PL");
 
     private final SpendingPolicyRepository repository;
+    private final AuditService auditService;
 
-    public SpendingPolicyService(SpendingPolicyRepository repository) {
+    public SpendingPolicyService(SpendingPolicyRepository repository, AuditService auditService) {
         this.repository = repository;
+        this.auditService = auditService;
     }
 
     @Transactional(readOnly = true)
@@ -38,6 +41,7 @@ public class SpendingPolicyService {
     public SpendingPolicy save(String ownerId, SpendingPolicyRequest request) {
         validateRequest(request);
         SpendingPolicy policy = repository.findByOwnerId(ownerId).orElse(null);
+        boolean created = policy == null;
         if (policy == null) {
             policy = new SpendingPolicy(
                     ownerId,
@@ -58,7 +62,10 @@ public class SpendingPolicyService {
                     request.countryCode(),
                     request.timezone());
         }
-        return repository.save(policy);
+        SpendingPolicy saved = repository.save(policy);
+        auditService.record(ownerId, created ? "POLICY_CREATED" : "POLICY_UPDATED",
+                java.util.Map.of("currency", saved.getCurrencyCode(), "country", saved.getCountryCode()));
+        return saved;
     }
 
     private void validateRequest(SpendingPolicyRequest request) {

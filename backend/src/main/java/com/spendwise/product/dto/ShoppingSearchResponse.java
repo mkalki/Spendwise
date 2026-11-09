@@ -9,6 +9,7 @@ public record ShoppingSearchResponse(
         List<ProductCandidateView> eligibleCandidates,
         List<ProductCandidateView> rejectedCandidates,
         String recommendation,
+        String comparisonSummary,
         ShoppingSortBy sortBy) {
 
     public record ShoppingIntent(
@@ -30,6 +31,13 @@ public record ShoppingSearchResponse(
             String price,
             String currencyCode,
             boolean eligible,
-            String rejectionReason) {
+            String rejectionReason,
+            String recommendationExplanation) {
+        public ProductCandidateView(UUID candidateId, String channel3ProductId, String productTitle,
+                String brand, String imageUrl, String merchantName, String offerUrl, String price,
+                String currencyCode, boolean eligible, String rejectionReason) {
+            this(candidateId, channel3ProductId, productTitle, brand, imageUrl, merchantName, offerUrl,
+                    price, currencyCode, eligible, rejectionReason, null);
+        }
     }
 }

@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.spendwise.common.exception.ApiException;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.policy.dto.SpendingPolicyRequest;
 import com.spendwise.policy.repository.SpendingPolicyRepository;
 import java.math.BigDecimal;
@@ -13,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class SpendingPolicyServiceTest {
 
     private final SpendingPolicyRepository repository = mock(SpendingPolicyRepository.class);
-    private final SpendingPolicyService service = new SpendingPolicyService(repository);
+    private final SpendingPolicyService service = new SpendingPolicyService(repository, mock(AuditService.class));
 
     @Test
     void rejectsInconsistentFinancialLimitsBeforePersistence() {

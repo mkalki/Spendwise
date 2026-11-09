@@ -1,18 +1,21 @@
 package com.spendwise.product.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.common.exception.ApiException;
 import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.common.security.GeminiUserRateLimiter;
 import com.spendwise.integration.gemini.GeminiService;
 import com.spendwise.integration.gemini.dto.GeminiRecommendationCandidate;
 import com.spendwise.integration.gemini.dto.GeminiShoppingIntent;
+import com.spendwise.integration.gemini.dto.GeminiRecommendationResult;
 import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.engine.PolicyEngine;
 import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.product.dto.ShoppingSearchRequest;
 import com.spendwise.product.dto.ShoppingSearchFilters;
 import com.spendwise.product.dto.ShoppingSearchResponse;
+import com.spendwise.product.dto.ShoppingPreferencesResponse;
 import com.spendwise.product.dto.ShoppingSortBy;
 import com.spendwise.product.entity.ProductCandidate;
 import com.spendwise.product.entity.ShoppingSearchSession;
@@ -20,6 +23,7 @@ import com.spendwise.product.integration.Channel3Client;
 import com.spendwise.product.integration.Channel3NotConfiguredException;
 import com.spendwise.product.repository.ProductCandidateRepository;
 import com.spendwise.product.repository.ShoppingSearchSessionRepository;
+import com.spendwise.product.service.ShoppingProfileService;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -47,6 +51,8 @@ public class ProductSearchService {
     private final ShoppingSearchSessionRepository sessionRepository;
     private final ProductCandidateRepository candidateRepository;
     private final TransactionTemplate transactions;
+    private final AuditService auditService;
+    private final ShoppingProfileService profileService;
 
     public ProductSearchService(
             Channel3Client channel3Client,
@@ -58,7 +64,9 @@ public class ProductSearchService {
             SpendingPolicyService policyService,
             ShoppingSearchSessionRepository sessionRepository,
             ProductCandidateRepository candidateRepository,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            AuditService auditService,
+            ShoppingProfileService profileService) {
         this.channel3Client = channel3Client;
         this.rateLimiter = rateLimiter;
         this.geminiRateLimiter = geminiRateLimiter;
@@ -69,11 +77,16 @@ public class ProductSearchService {
         this.sessionRepository = sessionRepository;
         this.candidateRepository = candidateRepository;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.auditService = auditService;
+        this.profileService = profileService;
     }
 
     public ShoppingSearchResponse search(String ownerId, ShoppingSearchRequest request) {
+        auditService.record(ownerId, "SHOPPING_SEARCH_STARTED", Map.of());
         geminiRateLimiter.acquire(ownerId);
         SpendingPolicy policy = policyService.getActive(ownerId);
+        ShoppingPreferencesResponse savedPreferences = profileService.getPreferences(ownerId);
+        if (savedPreferences == null) savedPreferences = ShoppingPreferencesResponse.empty();
         ShoppingIntentService.ParsedIntent literalIntent = intentService.parse(request.message());
         GeminiShoppingIntent aiIntent = geminiService.extractShoppingIntent(request.message());
         validateBudgetCurrency(literalIntent.requestedCurrency(), policy.getCurrencyCode());
@@ -81,6 +94,9 @@ public class ProductSearchService {
         ShoppingSearchFilters filters = request.filters();
         BigDecimal requestedMaxPrice = stricterBudget(
                 stricterBudget(literalIntent.requestedMaxPrice(), aiIntent.budget()), filters.maxPrice());
+        if (savedPreferences.maxPrice() != null && policy.getCurrencyCode().equals(savedPreferences.currencyCode())) {
+            requestedMaxPrice = stricterBudget(requestedMaxPrice, savedPreferences.maxPrice());
+        }
         BigDecimal effectiveMax = policyEngine.effectiveMaxProductPrice(policy, requestedMaxPrice);
 
         rateLimiter.acquire(ownerId);
@@ -132,13 +148,15 @@ public class ProductSearchService {
         List<ProductCandidate> eligibleCandidates = candidates.stream()
                 .filter(ProductCandidate::isEligible)
                 .toList();
+        CandidateRanking ranking = eligibleCandidates.isEmpty()
+                ? CandidateRanking.unavailable(eligibleCandidates)
+                : explainEligibleCandidates(request.message(), savedPreferences, eligibleCandidates);
         boolean aiRankingApplied = false;
         if (request.sortBy() == ShoppingSortBy.LOWEST_PRICE) {
             eligibleCandidates = eligibleCandidates.stream()
                     .sorted(Comparator.comparing(ProductCandidate::getListedPrice))
                     .toList();
         } else if (request.sortBy() == ShoppingSortBy.AI_RECOMMENDED && !eligibleCandidates.isEmpty()) {
-            CandidateRanking ranking = rankEligibleCandidates(request.message(), eligibleCandidates);
             eligibleCandidates = ranking.candidates();
             aiRankingApplied = ranking.applied();
         }
@@ -147,19 +165,32 @@ public class ProductSearchService {
         transactions.executeWithoutResult(status -> {
             sessionRepository.save(session);
             candidateRepository.saveAll(candidates);
+            auditService.record(ownerId, "SHOPPING_SEARCH_COMPLETED", Map.of(
+                    "searchSessionId", sessionId.toString(),
+                    "eligibleCount", finalEligibleCandidates.size(),
+                    "rejectedCount", candidates.size() - finalEligibleCandidates.size()));
+            for (ProductCandidate candidate : candidates) {
+                auditService.record(ownerId, candidate.isEligible() ? "PRODUCT_APPROVED" : "PRODUCT_REJECTED",
+                        Map.of("searchSessionId", sessionId.toString(),
+                                "candidateId", candidate.getId().toString(),
+                                "reason", candidate.isEligible() ? "POLICY_ELIGIBLE"
+                                        : java.util.Objects.requireNonNullElse(
+                                                candidate.getRejectionReason(), "POLICY_REJECTED")));
+            }
         });
 
         List<ShoppingSearchResponse.ProductCandidateView> eligible = finalEligibleCandidates.stream()
-                .map(this::toView)
+                .map(candidate -> toView(candidate, ranking.explanations().get(candidate.getId())))
                 .toList();
         List<ShoppingSearchResponse.ProductCandidateView> rejected = candidates.stream()
                 .filter(candidate -> !candidate.isEligible())
-                .map(this::toView)
+                .map(candidate -> toView(candidate, null))
                 .toList();
         String recommendation = eligible.isEmpty() ? null : switch (request.sortBy()) {
             case BEST_MATCH -> "Channel3's best-matching eligible results for your search.";
             case AI_RECOMMENDED -> aiRankingApplied
-                    ? "Gemini ranked eligible products returned by Channel3. Product details are from Channel3."
+                    ? java.util.Objects.requireNonNullElse(ranking.summary(),
+                            "Gemini compared eligible products using your request and saved preferences. Product facts are from Channel3.")
                     : "Gemini ranking was unavailable; showing Channel3's best-matching eligible results.";
             case LOWEST_PRICE -> "Lowest-priced eligible offer: " + eligible.getFirst().productTitle()
                     + " from " + eligible.getFirst().merchantName() + ".";
@@ -176,38 +207,53 @@ public class ProductSearchService {
                 eligible,
                 rejected,
                 recommendation,
+                ranking.summary(),
                 request.sortBy());
     }
 
-    private CandidateRanking rankEligibleCandidates(String userRequest, List<ProductCandidate> candidates) {
+    private CandidateRanking explainEligibleCandidates(
+            String userRequest,
+            ShoppingPreferencesResponse preferences,
+            List<ProductCandidate> candidates) {
         List<GeminiRecommendationCandidate> rankingInput = candidates.stream()
                 .map(candidate -> new GeminiRecommendationCandidate(
-                        candidate.getId(), candidate.getProductTitle(), candidate.getBrand()))
+                        candidate.getId(), candidate.getProductTitle(), candidate.getBrand(),
+                        candidate.getMerchantName(), candidate.getListedPrice() == null
+                                ? null : candidate.getListedPrice().toPlainString(),
+                        candidate.getCurrencyCode()))
                 .toList();
         try {
-            List<UUID> rankedIds = geminiService.rankShoppingCandidates(userRequest, rankingInput);
+            GeminiRecommendationResult result = geminiService.explainShoppingCandidates(
+                    userRequest, preferences, rankingInput);
+            if (result == null) return CandidateRanking.unavailable(candidates);
             Map<UUID, ProductCandidate> candidatesById = candidates.stream()
                     .collect(java.util.stream.Collectors.toMap(ProductCandidate::getId, candidate -> candidate));
             List<ProductCandidate> rankedCandidates = new ArrayList<>();
-            for (UUID candidateId : rankedIds) {
+            for (UUID candidateId : result.rankedCandidateIds()) {
                 ProductCandidate candidate = candidatesById.remove(candidateId);
                 if (candidate != null) {
                     rankedCandidates.add(candidate);
                 }
             }
-            if (rankedCandidates.isEmpty()) {
-                return new CandidateRanking(candidates, false);
-            }
             rankedCandidates.addAll(candidates.stream()
                     .filter(candidate -> candidatesById.containsKey(candidate.getId()))
                     .toList());
-            return new CandidateRanking(List.copyOf(rankedCandidates), true);
+            return new CandidateRanking(List.copyOf(rankedCandidates),
+                    !result.explanations().isEmpty() || !result.rankedCandidateIds().isEmpty(),
+                    result.explanations(), result.summary());
         } catch (ApiException exception) {
-            return new CandidateRanking(candidates, false);
+            return CandidateRanking.unavailable(candidates);
         }
     }
 
-    private record CandidateRanking(List<ProductCandidate> candidates, boolean applied) {
+    private record CandidateRanking(
+            List<ProductCandidate> candidates,
+            boolean applied,
+            Map<UUID, String> explanations,
+            String summary) {
+        private static CandidateRanking unavailable(List<ProductCandidate> candidates) {
+            return new CandidateRanking(candidates, false, Map.of(), null);
+        }
     }
 
     private boolean hasAdditionalFilters(ShoppingSearchFilters filters) {
@@ -393,7 +439,7 @@ public class ProductSearchService {
         return currencyCode != null && currencyCode.matches("[A-Z]{3}") ? currencyCode : null;
     }
 
-    private ShoppingSearchResponse.ProductCandidateView toView(ProductCandidate candidate) {
+    private ShoppingSearchResponse.ProductCandidateView toView(ProductCandidate candidate, String explanation) {
         return new ShoppingSearchResponse.ProductCandidateView(
                 candidate.getId(),
                 candidate.getChannel3ProductId(),
@@ -405,6 +451,7 @@ public class ProductSearchService {
                 candidate.getListedPrice() == null ? null : candidate.getListedPrice().toPlainString(),
                 candidate.getCurrencyCode(),
                 candidate.isEligible(),
-                candidate.getRejectionReason());
+                candidate.getRejectionReason(),
+                explanation);
     }
 }

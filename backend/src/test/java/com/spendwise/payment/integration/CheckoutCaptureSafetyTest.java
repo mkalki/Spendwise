@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.spendwise.checkout.service.CheckoutService;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.common.exception.ApiException;
 import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.payment.entity.PaymentTransaction;
@@ -45,6 +46,7 @@ class CheckoutCaptureSafetyTest {
     @Mock private SpendingPolicyRepository policyRepository;
     @Mock private ProductCandidateRepository candidateRepository;
     @Mock private PaymentTransactionRepository transactionRepository;
+    @Mock private AuditService auditService;
     @Mock private PlatformTransactionManager transactionManager;
     private CheckoutService service;
     private PaymentTransaction transaction;
@@ -65,7 +67,8 @@ class CheckoutCaptureSafetyTest {
                 .thenReturn(Optional.of(transaction));
         lenient().when(transactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         service = new CheckoutService(channel3Client, new Channel3UserRateLimiter(), paymentGateway,
-                policyRepository, new PolicyEngine(), candidateRepository, transactionRepository, transactionManager);
+                policyRepository, new PolicyEngine(), candidateRepository, transactionRepository, transactionManager,
+                auditService);
     }
 
     @Test
@@ -79,6 +82,9 @@ class CheckoutCaptureSafetyTest {
 
         assertThat(transaction.getStatus()).isEqualTo("COMPLETED");
         assertThat(transaction.getPaypalCaptureId()).isEqualTo("capture-1");
+        verify(auditService).record(OWNER, "PAYMENT_CAPTURED", java.util.Map.of(
+                "checkoutId", ID, "previousStatus", "CAPTURING", "status", "COMPLETED",
+                "amount", "50.00", "currency", "USD"));
     }
 
     @Test

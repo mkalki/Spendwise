@@ -1,6 +1,7 @@
 package com.spendwise.checkout.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.checkout.dto.CheckoutResponse;
 import com.spendwise.checkout.dto.TransactionHistoryResponse;
 import com.spendwise.checkout.dto.TransactionHistoryResponse.TransactionView;
@@ -50,6 +51,7 @@ public class CheckoutService {
     private final ProductCandidateRepository candidateRepository;
     private final PaymentTransactionRepository transactionRepository;
     private final TransactionTemplate transactions;
+    private final AuditService auditService;
 
     public CheckoutService(
             Channel3Client channel3Client,
@@ -59,7 +61,8 @@ public class CheckoutService {
             PolicyEngine policyEngine,
             ProductCandidateRepository candidateRepository,
             PaymentTransactionRepository transactionRepository,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            AuditService auditService) {
         this.channel3Client = channel3Client;
         this.channel3RateLimiter = channel3RateLimiter;
         this.paymentGateway = paymentGateway;
@@ -68,6 +71,7 @@ public class CheckoutService {
         this.candidateRepository = candidateRepository;
         this.transactionRepository = transactionRepository;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.auditService = auditService;
     }
 
     public CheckoutResponse create(
@@ -142,7 +146,10 @@ public class CheckoutService {
                 return transactionRepository.save(current);
             }
             current.paypalOrderCreated(order.orderId(), order.approvalUrl());
-            return transactionRepository.save(current);
+            PaymentTransaction saved = transactionRepository.save(current);
+            auditService.record(ownerId, "PAYPAL_ORDER_CREATED", java.util.Map.of(
+                    "checkoutId", saved.getId(), "paypalOrderId", order.orderId()));
+            return saved;
         });
         if (updated == null || !"APPROVED".equals(updated.getStatus())) {
             throw new ApiException(
@@ -170,6 +177,7 @@ public class CheckoutService {
                     && ("APPROVED".equals(transaction.getStatus()) || "CREATED".equals(transaction.getStatus()))) {
                 transaction.markExpired();
                 transactionRepository.save(transaction);
+                auditService.record(ownerId, "CHECKOUT_EXPIRED", java.util.Map.of("checkoutId", checkoutId));
                 return new CaptureStart(transaction, true, false, false, false);
             }
             if (!"APPROVED".equals(transaction.getStatus())) {
@@ -297,7 +305,10 @@ public class CheckoutService {
                 throw conflict("CHECKOUT_STATE_CHANGED", "Checkout state changed while cancellation was processing.");
             }
             current.markCancelled();
-            return transactionRepository.save(current);
+            PaymentTransaction saved = transactionRepository.save(current);
+            auditService.record(ownerId, "PAYMENT_CANCELLED", java.util.Map.of(
+                    "checkoutId", checkoutId, "paypalOrderId", saved.getPaypalOrderId()));
+            return saved;
         });
         return CheckoutResponse.from(cancelled);
     }
@@ -468,7 +479,11 @@ public class CheckoutService {
                     idempotencyKey,
                     candidate.getId(),
                     now.plusSeconds(RESERVATION_MINUTES * 60));
-            return transactionRepository.save(transaction);
+            PaymentTransaction saved = transactionRepository.save(transaction);
+            auditService.record(ownerId, "CHECKOUT_RESERVED", java.util.Map.of(
+                    "checkoutId", saved.getId(), "candidateId", candidate.getId().toString(),
+                    "amount", saved.getAmount().toPlainString(), "currency", saved.getCurrencyCode()));
+            return saved;
         });
     }
 
@@ -528,9 +543,33 @@ public class CheckoutService {
             java.util.function.Consumer<PaymentTransaction> update) {
         return transactions.execute(status -> {
             PaymentTransaction transaction = findForUpdate(ownerId, transactionId);
+            String previousStatus = transaction.getStatus();
             update.accept(transaction);
-            return transactionRepository.save(transaction);
+            PaymentTransaction saved = transactionRepository.save(transaction);
+            recordStatusTransition(saved, previousStatus);
+            return saved;
         });
+    }
+
+    private void recordStatusTransition(PaymentTransaction transaction, String previousStatus) {
+        String status = transaction.getStatus();
+        if (java.util.Objects.equals(previousStatus, status)) return;
+        String eventType = switch (status) {
+            case "COMPLETED" -> "PAYMENT_CAPTURED";
+            case "CANCELLED" -> "PAYMENT_CANCELLED";
+            case "FAILED" -> "PAYMENT_FAILED";
+            case "REQUIRES_RECONCILIATION" -> "PAYMENT_REQUIRES_RECONCILIATION";
+            case "PARTIALLY_REFUNDED" -> "PAYMENT_PARTIALLY_REFUNDED";
+            case "REFUNDED" -> "PAYMENT_REFUNDED";
+            case "REVERSED" -> "PAYMENT_REVERSED";
+            default -> null;
+        };
+        if (eventType != null) {
+            auditService.record(transaction.getOwnerId(), eventType, java.util.Map.of(
+                    "checkoutId", transaction.getId(), "previousStatus", previousStatus, "status", status,
+                    "amount", transaction.getAmount().toPlainString(),
+                    "currency", transaction.getCurrencyCode()));
+        }
     }
 
     private CheckoutResponse recoverOrderCreation(String ownerId, PaymentTransaction reservation) {
@@ -558,7 +597,10 @@ public class CheckoutService {
                 return current;
             }
             current.paypalOrderCreated(order.orderId(), order.approvalUrl());
-            return transactionRepository.save(current);
+            PaymentTransaction saved = transactionRepository.save(current);
+            auditService.record(ownerId, "PAYPAL_ORDER_CREATED", java.util.Map.of(
+                    "checkoutId", saved.getId(), "paypalOrderId", order.orderId(), "recovered", true));
+            return saved;
         });
         return CheckoutResponse.from(updated);
     }

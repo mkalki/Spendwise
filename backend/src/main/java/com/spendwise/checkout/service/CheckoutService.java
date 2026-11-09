@@ -350,6 +350,45 @@ public class CheckoutService {
                 .ifPresent(transaction -> getPaymentByPaypalOrderId(transaction.getOwnerId(), paypalOrderId));
     }
 
+    public void reconcilePaypalCapture(String paypalCaptureId, boolean reversedEvent) {
+        if (!StringUtils.hasText(paypalCaptureId)) return;
+        PaymentTransaction transaction = transactionRepository.findByPaypalCaptureId(paypalCaptureId).orElse(null);
+        if (transaction == null) return;
+
+        PaymentGateway.CaptureStatus providerStatus;
+        try {
+            providerStatus = paymentGateway.getCaptureStatus(paypalCaptureId);
+        } catch (PaymentProviderNotConfiguredException exception) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "PAYMENT_PROVIDER_NOT_CONFIGURED",
+                    "PayPal capture status is unavailable because the provider is not configured.");
+        } catch (PaymentProviderTimeoutException exception) {
+            throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "PAYMENT_STATUS_UNCONFIRMED",
+                    "PayPal did not confirm the capture status.");
+        } catch (PaymentProviderRejectedException | PaymentProviderException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_STATUS_UNCONFIRMED",
+                    "PayPal did not confirm the capture status.");
+        }
+        if (providerStatus == null
+                || !paypalCaptureId.equals(providerStatus.captureId())
+                || !transaction.getPaypalOrderId().equals(providerStatus.orderId())
+                || providerStatus.amount() == null
+                || providerStatus.amount().compareTo(transaction.getAmount()) != 0
+                || !transaction.getCurrencyCode().equals(providerStatus.currencyCode())) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_STATUS_MISMATCH",
+                    "PayPal capture details did not match this checkout.");
+        }
+
+        if ("PARTIALLY_REFUNDED".equals(providerStatus.status())) {
+            updateStatus(transaction.getOwnerId(), transaction.getId(), PaymentTransaction::markPartiallyRefunded);
+        } else if ("REFUNDED".equals(providerStatus.status())) {
+            updateStatus(transaction.getOwnerId(), transaction.getId(), reversedEvent
+                    ? PaymentTransaction::markReversed
+                    : PaymentTransaction::markRefunded);
+        } else if ("REVERSED".equals(providerStatus.status()) && reversedEvent) {
+            updateStatus(transaction.getOwnerId(), transaction.getId(), PaymentTransaction::markReversed);
+        }
+    }
+
     public PaymentTransaction getOwnedPaymentById(String ownerId, Long id) {
         return transactionRepository.findByOwnerIdAndId(ownerId, id)
                 .orElseThrow(() -> new ApiException(

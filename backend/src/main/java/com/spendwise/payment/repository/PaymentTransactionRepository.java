@@ -20,6 +20,8 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     Optional<PaymentTransaction> findByPaypalOrderId(String paypalOrderId);
 
+    Optional<PaymentTransaction> findByPaypalCaptureId(String paypalCaptureId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select tx from PaymentTransaction tx where tx.ownerId = :ownerId and tx.id = :id")
     Optional<PaymentTransaction> findByOwnerIdAndIdForUpdate(
@@ -44,7 +46,7 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             select coalesce(sum(tx.amount), 0)
             from PaymentTransaction tx
             where tx.ownerId = :ownerId
-              and tx.status = 'COMPLETED'
+              and tx.status in ('COMPLETED', 'PARTIALLY_REFUNDED')
               and tx.completedAt >= :start
               and tx.completedAt < :end
             """)
@@ -57,7 +59,7 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             select count(tx)
             from PaymentTransaction tx
             where tx.ownerId = :ownerId
-              and tx.status = 'COMPLETED'
+              and tx.status in ('COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED', 'REVERSED')
               and tx.completedAt >= :start
               and tx.completedAt < :end
             """)

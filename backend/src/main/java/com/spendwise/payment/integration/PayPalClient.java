@@ -30,10 +30,14 @@ public class PayPalClient implements PaymentGateway {
             @Value("${spendwise.paypal.base-url}") String baseUrl,
             @Value("${spendwise.paypal.return-url}") String returnUrl,
             @Value("${spendwise.paypal.cancel-url}") String cancelUrl) {
-        this.restClient = RestClient.builder()
+        this(authService, RestClient.builder()
                 .baseUrl(requireSandboxBaseUrl(baseUrl))
                 .requestFactory(requestFactory)
-                .build();
+                .build(), returnUrl, cancelUrl);
+    }
+
+    PayPalClient(PayPalAuthService authService, RestClient restClient, String returnUrl, String cancelUrl) {
+        this.restClient = restClient;
         this.authService = authService;
         this.returnUrl = returnUrl;
         this.cancelUrl = cancelUrl;
@@ -179,6 +183,23 @@ public class PayPalClient implements PaymentGateway {
                 text(confirmedAmount, "currency_code"));
     }
 
+    @Override
+    public CaptureStatus getCaptureStatus(String paypalCaptureId) {
+        String accessToken = authService.accessToken();
+        JsonNode response = request(() -> restClient.get()
+                .uri("/v2/payments/captures/{captureId}", paypalCaptureId)
+                .headers(headers -> headers.setBearerAuth(accessToken))
+                .retrieve()
+                .body(JsonNode.class));
+        JsonNode amount = response.path("amount");
+        return new CaptureStatus(
+                text(response, "status"),
+                text(response, "id"),
+                response.path("supplementary_data").path("related_ids").path("order_id").asText(null),
+                decimal(amount.path("value")),
+                text(amount, "currency_code"));
+    }
+
     private JsonNode request(java.util.function.Supplier<JsonNode> operation) {
         try {
             JsonNode response = TransientHttpRetry.execute(operation, false);
@@ -226,7 +247,7 @@ public class PayPalClient implements PaymentGateway {
         }
     }
 
-    private String requireSandboxBaseUrl(String value) {
+    private static String requireSandboxBaseUrl(String value) {
         URI uri = URI.create(value);
         if (!"https".equalsIgnoreCase(uri.getScheme())
                 || !"api-m.sandbox.paypal.com".equalsIgnoreCase(uri.getHost())

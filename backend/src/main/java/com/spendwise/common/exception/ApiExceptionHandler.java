@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -67,6 +68,18 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> handleMissingOrInvalidParameter(Exception exception) {
         return ResponseEntity.badRequest()
                 .body(new ApiError("INVALID_REQUEST", "A required request value is missing or invalid.", Map.of()));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    ResponseEntity<ApiError> handleUnsupportedMethod(HttpRequestMethodNotSupportedException exception) {
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);
+        if (exception.getSupportedHttpMethods() != null) {
+            response.header(HttpHeaders.ALLOW, exception.getSupportedHttpMethods().stream()
+                    .map(org.springframework.http.HttpMethod::name)
+                    .collect(Collectors.joining(", ")));
+        }
+        return response.body(new ApiError(
+                "METHOD_NOT_ALLOWED", "The HTTP method is not supported for this route.", Map.of()));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

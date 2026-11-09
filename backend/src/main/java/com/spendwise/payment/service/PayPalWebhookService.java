@@ -15,20 +15,45 @@ public class PayPalWebhookService {
     }
 
     public void receive(JsonNode event) {
-        String eventType = event == null ? null : event.path("event_type").asText(null);
-        JsonNode resource = event == null ? null : event.get("resource");
-        if (eventType == null || resource == null || !resource.isObject()) {
+        if (event == null || !event.isObject()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PAYPAL_WEBHOOK", "The PayPal event payload is invalid.");
         }
+        String eventType = event.path("event_type").asText(null);
+        if (eventType == null || eventType.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PAYPAL_WEBHOOK", "The PayPal event payload is invalid.");
+        }
+        if (!isSupported(eventType)) return;
+
+        JsonNode resource = event.get("resource");
+        if (resource == null || !resource.isObject()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PAYPAL_WEBHOOK", "The PayPal event payload is invalid.");
+        }
+        if ("PAYMENT.CAPTURE.REFUNDED".equals(eventType) || "PAYMENT.CAPTURE.REVERSED".equals(eventType)) {
+            String captureId = resource.path("id").asText(null);
+            if (captureId != null && !captureId.isBlank()) {
+                checkoutService.reconcilePaypalCapture(captureId, "PAYMENT.CAPTURE.REVERSED".equals(eventType));
+            }
+            return;
+        }
         String orderId = switch (eventType) {
-            case "CHECKOUT.ORDER.APPROVED", "CHECKOUT.ORDER.VOIDED" -> resource.path("id").asText(null);
-            case "PAYMENT.CAPTURE.COMPLETED", "PAYMENT.CAPTURE.DENIED", "PAYMENT.CAPTURE.PENDING",
-                    "PAYMENT.CAPTURE.REFUNDED", "PAYMENT.CAPTURE.REVERSED" -> resource.path("supplementary_data")
+            case "CHECKOUT.ORDER.APPROVED", "CHECKOUT.ORDER.COMPLETED", "CHECKOUT.ORDER.VOIDED" ->
+                    resource.path("id").asText(null);
+            case "PAYMENT.CAPTURE.COMPLETED", "PAYMENT.CAPTURE.DENIED", "PAYMENT.CAPTURE.PENDING" ->
+                    resource.path("supplementary_data")
                     .path("related_ids").path("order_id").asText(null);
             default -> null;
         };
         if (orderId != null && !orderId.isBlank()) {
             checkoutService.reconcilePaypalOrder(orderId);
         }
+    }
+
+    private boolean isSupported(String eventType) {
+        return switch (eventType) {
+            case "CHECKOUT.ORDER.APPROVED", "CHECKOUT.ORDER.COMPLETED", "CHECKOUT.ORDER.VOIDED",
+                    "PAYMENT.CAPTURE.COMPLETED", "PAYMENT.CAPTURE.DENIED", "PAYMENT.CAPTURE.PENDING",
+                    "PAYMENT.CAPTURE.REFUNDED", "PAYMENT.CAPTURE.REVERSED" -> true;
+            default -> false;
+        };
     }
 }

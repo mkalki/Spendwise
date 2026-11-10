@@ -308,9 +308,7 @@ export default function PolicySettings() {
             <div className="policy-fields">
               <div className="form-group">
                 <label htmlFor="currency">Currency</label>
-                <select id="currency" value="USD" disabled>
-                  <option value="USD">USD - US Dollar</option>
-                </select>
+                <input id="currency" type="text" value="USD - US Dollar" readOnly />
               </div>
               <div className="form-group">
                 <label htmlFor="country">Country</label>

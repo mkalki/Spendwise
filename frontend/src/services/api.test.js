@@ -82,6 +82,40 @@ test("a confirmed capture or cancellation clears the key for the next attempt", 
   assert.equal(new Set(requests.map(({ key }) => key)).size, 3);
 });
 
+test("confirmed expiry during capture or cancellation clears only the matching checkout key", async (t) => {
+  const expired = () => Response.json({ code: "CHECKOUT_EXPIRED" }, { status: 409 });
+  const otherCheckout = () => Response.json({
+    checkoutSessionId: "102",
+    approvalUrl: "https://www.sandbox.paypal.com/checkoutnow",
+  });
+  const requests = mockCheckout(t, approvedCheckout(), otherCheckout(), expired(), approvedCheckout(),
+    otherCheckout(), expired(), approvedCheckout());
+
+  await createCheckout();
+  await api.createCheckout("search-1", "candidate-2");
+  await assert.rejects(() => api.captureCheckout("101"), { code: "CHECKOUT_EXPIRED" });
+  await createCheckout();
+  await api.createCheckout("search-1", "candidate-2");
+  await assert.rejects(() => api.cancelCheckout("101"), { code: "CHECKOUT_EXPIRED" });
+  await createCheckout();
+
+  assert.equal(new Set([requests[0].key, requests[2].key, requests[4].key]).size, 3);
+  assert.equal(requests[1].key, requests[3].key);
+});
+
+test("an expired replay allows a fresh key while an unconfirmed capture keeps the old one", async (t) => {
+  const requests = mockCheckout(t, approvedCheckout(), new Response(null, { status: 504 }),
+    Response.json({ code: "CHECKOUT_EXPIRED" }, { status: 409 }), approvedCheckout());
+
+  await createCheckout();
+  await assert.rejects(() => api.captureCheckout("101"), { status: 504 });
+  await assert.rejects(createCheckout, { code: "CHECKOUT_EXPIRED" });
+  await createCheckout();
+
+  assert.equal(requests[0].key, requests[1].key);
+  assert.notEqual(requests[1].key, requests[2].key);
+});
+
 test("a definitive 4xx clears the key for the next attempt", async (t) => {
   const requests = mockCheckout(t, Response.json({ code: "PRODUCT_NOT_ELIGIBLE" }, { status: 409 }),
     approvedCheckout());

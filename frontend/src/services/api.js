@@ -13,13 +13,29 @@ function saveCheckoutAttempts(attempts) {
   sessionStorage.setItem(checkoutAttemptStorage, JSON.stringify(attempts));
 }
 
-function clearSettledCheckout(checkout) {
-  if (!["CAPTURED", "CANCELLED"].includes(checkout?.status)) return;
+function clearCheckoutAttempt(checkoutId) {
   const attempts = readCheckoutAttempts();
-  const body = Object.keys(attempts).find((body) => attempts[body].checkoutId === checkout.checkoutSessionId);
+  const body = Object.keys(attempts).find((body) => attempts[body].checkoutId === String(checkoutId));
   if (body !== undefined) {
     delete attempts[body];
     saveCheckoutAttempts(attempts);
+  }
+}
+
+async function settleCheckout(checkoutId, action) {
+  try {
+    const checkout = await request(`/v1/checkout-sessions/${checkoutId}/${action}`, {
+      method: "POST",
+    });
+    if (["CAPTURED", "CANCELLED", "EXPIRED"].includes(checkout?.status)) {
+      clearCheckoutAttempt(checkoutId);
+    }
+    return checkout;
+  } catch (error) {
+    if (error.status === 409 && error.code === "CHECKOUT_EXPIRED") {
+      clearCheckoutAttempt(checkoutId);
+    }
+    throw error;
   }
 }
 
@@ -248,19 +264,11 @@ export const api = {
   },
 
   async captureCheckout(checkoutSessionId) {
-    const checkout = await request(`/v1/checkout-sessions/${checkoutSessionId}/capture`, {
-      method: "POST",
-    });
-    clearSettledCheckout(checkout);
-    return checkout;
+    return settleCheckout(checkoutSessionId, "capture");
   },
 
   async cancelCheckout(checkoutSessionId) {
-    const checkout = await request(`/v1/checkout-sessions/${checkoutSessionId}/cancel`, {
-      method: "POST",
-    });
-    clearSettledCheckout(checkout);
-    return checkout;
+    return settleCheckout(checkoutSessionId, "cancel");
   },
 
 };

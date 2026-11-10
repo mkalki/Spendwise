@@ -20,6 +20,8 @@ import com.spendwise.payment.repository.PaymentTransactionRepository;
 import com.spendwise.policy.engine.PolicyEngine;
 import com.spendwise.policy.repository.SpendingPolicyRepository;
 import com.spendwise.product.integration.Channel3Client;
+import com.spendwise.product.entity.ProductCandidate;
+import com.spendwise.product.entity.ShoppingSearchSession;
 import com.spendwise.product.repository.ProductCandidateRepository;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
@@ -69,6 +71,33 @@ class CheckoutCaptureSafetyTest {
         service = new CheckoutService(channel3Client, new Channel3UserRateLimiter(), paymentGateway,
                 policyRepository, new PolicyEngine(), candidateRepository, transactionRepository, transactionManager,
                 auditService);
+    }
+
+    @Test
+    void reportsConfirmedExpiryWhenReplayingCapturingOrCancellingAnExpiredCheckout() {
+        transaction.markExpired();
+        UUID candidateId = transaction.getCandidateId();
+        UUID searchId = UUID.randomUUID();
+        ProductCandidate candidate = mock(ProductCandidate.class);
+        ShoppingSearchSession search = mock(ShoppingSearchSession.class);
+        when(candidate.getSearchSession()).thenReturn(search);
+        when(search.getId()).thenReturn(searchId);
+        when(candidateRepository.findOwnedById(candidateId, OWNER)).thenReturn(Optional.of(candidate));
+        when(transactionRepository.findByOwnerIdAndIdempotencyKey(OWNER, "idempotency-1"))
+                .thenReturn(Optional.of(transaction));
+        when(transactionRepository.findByOwnerIdAndId(OWNER, ID)).thenReturn(Optional.of(transaction));
+
+        assertThatThrownBy(() -> service.create(OWNER, "idempotency-1", searchId, candidateId))
+                .isInstanceOfSatisfying(ApiException.class,
+                        error -> assertThat(error.getCode()).isEqualTo("CHECKOUT_EXPIRED"));
+        assertThatThrownBy(() -> service.capture(OWNER, ID))
+                .isInstanceOfSatisfying(ApiException.class,
+                        error -> assertThat(error.getCode()).isEqualTo("CHECKOUT_EXPIRED"));
+        assertThatThrownBy(() -> service.cancel(OWNER, ID))
+                .isInstanceOfSatisfying(ApiException.class,
+                        error -> assertThat(error.getCode()).isEqualTo("CHECKOUT_EXPIRED"));
+        verify(paymentGateway, never()).captureOrder(any(), any());
+        verify(paymentGateway, never()).canCancelOrder(any());
     }
 
     @Test

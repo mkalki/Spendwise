@@ -28,9 +28,17 @@ backend. The frontend origin and post-login destination are configured with
 `FRONTEND_ORIGIN` and `AUTH_SUCCESS_URL`. Use HTTPS and set
 `SESSION_COOKIE_SECURE=true` outside local development.
 
-Start sign-in by navigating the browser to
-`http://localhost:8080/oauth2/authorization/google`. After Google verifies the
-user, Spring creates a server-side session and redirects to `AUTH_SUCCESS_URL`.
+Start sign-in from the frontend at `http://localhost:5173`. The browser opens
+`/api/auth/google/login` on the frontend origin and Vite proxies the OAuth
+requests to Spring. After Google verifies the user, Spring creates a
+server-side session and redirects to `AUTH_SUCCESS_URL`.
+
+In production, proxy `/api/*`, `/oauth2/*`, and `/login/oauth2/*` on the public
+frontend origin to Spring. Set `FRONTEND_ORIGIN` to that HTTPS origin,
+`AUTH_SUCCESS_URL` to the frontend URL users should land on, and
+`GOOGLE_REDIRECT_URI` to the public `/login/oauth2/code/google` URL. Register
+that exact callback URL in the Google OAuth client.
+
 The frontend can fetch `/api/auth/me` with credentials to read the signed-in
 user, and call `POST /api/auth/logout` with the CSRF header/token obtained from
 `GET /api/auth/csrf`. The session is the authentication credential; do not put

@@ -39,8 +39,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-spendwise}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
 
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
-      AUTH_SUCCESS_URL: ${AUTH_SUCCESS_URL:-http://localhost:3000/auth/callback}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      AUTH_SUCCESS_URL: ${AUTH_SUCCESS_URL:-http://localhost:5173/}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
 
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-local-google-client-id}

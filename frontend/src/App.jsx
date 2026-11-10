@@ -14,7 +14,7 @@ import Landing from "./pages/Landing";
 import CheckoutReturn from "./pages/CheckoutReturn";
 import { api } from "./services/api";
 import AmbientScene from "./components/AmbientScene";
-import { CustomCursor, ExperienceLoader } from "./components/ExperienceEffects";
+import { ExperienceLoader } from "./components/ExperienceEffects";
 
 export default function App() {
   const location = useLocation();
@@ -42,7 +42,6 @@ export default function App() {
     return (
       <>
         <ExperienceLoader ready={ready} />
-        <CustomCursor />
         <AmbientScene />
         <main className="page-content"><div className="panel">Checking your session...</div></main>
       </>
@@ -53,7 +52,6 @@ export default function App() {
     return (
       <>
         <ExperienceLoader ready={ready} />
-        <CustomCursor />
         <AmbientScene />
         <Landing onAuthenticated={setUser} />
       </>
@@ -63,8 +61,6 @@ export default function App() {
   return (
     <div className="app-shell studio-shell" id="top">
       <ExperienceLoader ready={ready} />
-      <CustomCursor />
-      <AmbientScene />
 
       <Sidebar />
 

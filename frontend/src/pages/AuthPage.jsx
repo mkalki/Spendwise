@@ -51,7 +51,7 @@ export default function AuthPage({ onAuthenticated }) {
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) throw new Error("Backend unavailable");
-      window.location.assign("http://localhost:8080/api/auth/google/login");
+      window.location.assign("/api/auth/google/login");
     } catch {
       setErrorMessage(
         "The backend is unavailable on port 8080. Start Docker Desktop and run docker compose up -d --build, then try again."

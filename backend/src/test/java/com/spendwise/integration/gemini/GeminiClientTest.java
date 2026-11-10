@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spendwise.integration.gemini.dto.GeminiRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -33,7 +34,7 @@ class GeminiClientTest {
                 .andRespond(withSuccess("""
                         {"candidates":[{"content":{"parts":[{"text":"Hello"},{"text":" from Gemini."}]}}]}
                         """, MediaType.APPLICATION_JSON));
-        GeminiClient client = new GeminiClient(builder.build(), "test-gemini-key", "gemini-3.8-flash");
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
 
         var response = client.generate(new GeminiRequest("Say hello."));
 
@@ -56,7 +57,7 @@ class GeminiClientTest {
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
                         .withStatus(HttpStatus.BAD_GATEWAY));
-        GeminiClient client = new GeminiClient(builder.build(), "test-gemini-key", "gemini-3.8-flash");
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
 
         assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
                 .isInstanceOf(GeminiProviderException.class);
@@ -70,7 +71,7 @@ class GeminiClientTest {
         server.expect(requestTo(
                         "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withSuccess("{\"candidates\":[]}", MediaType.APPLICATION_JSON));
-        GeminiClient client = new GeminiClient(builder.build(), "test-gemini-key", "gemini-3.8-flash");
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
 
         assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
                 .isInstanceOf(GeminiProviderException.class);
@@ -92,7 +93,7 @@ class GeminiClientTest {
                 .andRespond(withSuccess("""
                         {"candidates":[{"content":{"parts":[{"text":"{\\"normalizedQuery\\":\\"laptop\\"}"}]}}]}
                         """, MediaType.APPLICATION_JSON));
-        GeminiClient client = new GeminiClient(builder.build(), "test-gemini-key", "gemini-3.8-flash");
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
 
         var response = client.generateJson("Extract shopping intent.");
 
@@ -104,10 +105,96 @@ class GeminiClientTest {
     void reportsMissingApiKeyWithoutMakingARequest() {
         GeminiClient client = new GeminiClient(
                 RestClient.builder().baseUrl("https://generativelanguage.googleapis.com").build(),
+                new ObjectMapper(),
                 " ",
                 "gemini-3.8-flash");
 
         assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
                 .isInstanceOf(GeminiNotConfiguredException.class);
+    }
+
+    @Test
+    void identifiesDocumentedInvalidApiKeyPayload() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://generativelanguage.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(
+                        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"error":{"code":400,"status":"INVALID_ARGUMENT","details":[
+                                  {"reason":"API_KEY_INVALID","metadata":{"service":"generativelanguage.googleapis.com"}}
+                                ]}}
+                                """));
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
+
+        assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
+                .isInstanceOf(GeminiInvalidApiKeyException.class);
+        server.verify();
+    }
+
+    @Test
+    void recognizesInvalidKeyInAlternateErrorShapeAndStatus() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://generativelanguage.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(
+                        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(HttpStatus.UNAUTHORIZED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"error":{"errorCode":"INVALID_API_KEY"}}
+                                """));
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
+
+        assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
+                .isInstanceOf(GeminiInvalidApiKeyException.class);
+        server.verify();
+    }
+
+    @Test
+    void identifiesPlainTextInvalidKeyMessageWithoutAssumingJson() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://generativelanguage.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(
+                        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(HttpStatus.UNAUTHORIZED)
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .body("API key not valid. Please pass a valid API key."));
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
+
+        assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
+                .isInstanceOf(GeminiInvalidApiKeyException.class);
+        server.verify();
+    }
+
+    @Test
+    void leavesPermissionErrorsAndMalformedBodiesAsGenericProviderErrors() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://generativelanguage.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
+        server.expect(requestTo(url))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"error":{"status":"PERMISSION_DENIED","message":"The key lacks permission."}}
+                                """));
+        server.expect(requestTo(url))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{not-json"));
+        GeminiClient client = new GeminiClient(builder.build(), new ObjectMapper(), "test-gemini-key", "gemini-3.8-flash");
+
+        assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
+                .isInstanceOf(GeminiProviderException.class)
+                .isNotInstanceOf(GeminiInvalidApiKeyException.class);
+        assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
+                .isInstanceOf(GeminiProviderException.class)
+                .isNotInstanceOf(GeminiInvalidApiKeyException.class);
+        server.verify();
     }
 }

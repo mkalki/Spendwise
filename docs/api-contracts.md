@@ -239,13 +239,15 @@ Example provider request:
       "price": "40.00",
       "currencyCode": "USD",
       "eligible": true,
-      "recommendationExplanation": "Matches your preferred brand and is within your stated budget."
+      "recommendationExplanation": "Matches your preferred brand and is within your stated budget.",
+      "rating": {"value": 4.6, "count": 120, "sourceCount": 3}
     }
   ],
   "rejectedCandidates": [],
   "recommendation": "This offer best matches your requested features and saved preferences.",
   "comparisonSummary": "It matches your selected brand and keywords while meeting your requested price range.",
-  "sortBy": "AI_RECOMMENDED"
+  "sortBy": "AI_RECOMMENDED",
+  "aiRanked": true
 }
 ```
 
@@ -258,9 +260,27 @@ remain server-mapped from Channel3. `GEMINI_API_KEY` and `CHANNEL3_API_KEY` must
 be configured for live search; otherwise the relevant provider configuration
 error is returned (AI ranking falls back to Channel3 ordering).
 
-Channel3's documented product response currently does not provide product
-ratings, so the API does not offer a `TOP_RATED` sort or claim that an item is
-highly rated. Add that option only when a trusted rating field is available.
+When Channel3 supplies a rating rollup, the API includes its 0–5 value, review
+count, and number of contributing rating sources. Missing ratings are returned
+as null. The Products page can sort the returned offers by rating. Individual
+reviews are available through the retailer link when the retailer lists them.
+
+## Cart and checkout details
+
+These routes use the signed-in account ID. Cart and checkout details are shared
+across independent sessions on the same deployment. Writes require CSRF.
+
+| Method and path | Behavior |
+| --- | --- |
+| `GET /api/v1/cart` | List saved offers with candidate and search session IDs, merchant, image, and price. Captured offers leave the cart. |
+| `PUT /api/v1/cart/items/{candidateId}` | Add an eligible candidate from the account's searches. Repeating the same request returns 204 without adding a duplicate. |
+| `DELETE /api/v1/cart/items/{candidateId}` | Remove an offer from the signed-in account's cart. Returns 204. |
+| `GET /api/v1/cart/details` | Retrieve saved delivery and billing addresses. |
+| `PUT /api/v1/cart/details` | Save delivery and billing addresses. Returns the saved details. |
+
+Both addresses use `fullName`, `line1`, `line2`, `city`, `region`, `postalCode`,
+and a two-letter uppercase `countryCode`. `shipping` is required on save.
+`billing` may be null when it matches delivery. PayPal handles payment credentials.
 
 ## Checkout and payment
 

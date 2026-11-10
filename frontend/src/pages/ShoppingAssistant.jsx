@@ -5,7 +5,7 @@ import { ArrowUpRight, Search, Send, Sparkles, ShieldCheck } from "lucide-react"
 
 import { api } from "../services/api";
 
-export default function ShoppingAssistant() {
+export default function ShoppingAssistant({ userId }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [message, setMessage] = useState(searchParams.get("query") || "");
@@ -29,7 +29,7 @@ export default function ShoppingAssistant() {
     setSubmittedMessage(requestMessage);
     try {
       const result = await api.searchShopping(requestMessage);
-      sessionStorage.setItem("spendwise_search_result", JSON.stringify(result));
+      sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result }));
       navigate("/products");
     } catch (error) {
       setErrorMessage(error.message || "Unable to search products.");

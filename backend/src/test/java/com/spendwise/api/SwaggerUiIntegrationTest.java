@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.spendwise.common.config.OpenApiConfiguration;
+import com.spendwise.checkout.controller.CartController;
+import com.spendwise.checkout.service.CartService;
 import com.spendwise.common.exception.ApiExceptionHandler;
 import com.spendwise.integration.gemini.GeminiController;
 import com.spendwise.integration.gemini.GeminiService;
@@ -68,6 +70,8 @@ class SwaggerUiIntegrationTest {
                 .andExpect(jsonPath("$.paths['/api/v1/shopping/preferences'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/shopping/preferences'].put").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/shopping/search-history'].get").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/cart'].get.security[0].SpendwiseSession").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/cart/details'].put.security[0].CsrfToken").exists())
                 .andExpect(jsonPath("$.paths['/api/webhooks/paypal'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/webhooks/paypal'].post.security").doesNotExist());
     }
@@ -84,9 +88,15 @@ class SwaggerUiIntegrationTest {
         GeminiController.class,
         ShoppingController.class,
         ShoppingProfileController.class,
+        CartController.class,
         PayPalWebhookController.class
     })
     static class SwaggerTestApplication {
+
+        @Bean
+        CartService cartService() {
+            return mock(CartService.class);
+        }
 
         @Bean
         GeminiService geminiService() {

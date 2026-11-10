@@ -6,6 +6,9 @@ const pageTitles = {
   "/": "Dashboard",
   "/assistant": "Shopping Assistant",
   "/products": "Products",
+  "/cart": "Cart",
+  "/checkout/return": "Checkout",
+  "/checkout/cancel": "Checkout",
   "/policies": "Spending Policies",
   "/transactions": "Transactions",
 };

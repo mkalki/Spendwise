@@ -1,188 +1,110 @@
 import { useState } from "react";
-
-import { ShieldCheck } from "lucide-react";
-
+import { ArrowRight, Eye, EyeOff, ShieldCheck, ShoppingCart, Sparkles } from "lucide-react";
 import { api } from "../services/api";
+import "./Shopping.css";
 
 export default function AuthPage({ onAuthenticated }) {
-  const [mode, setMode] = useState("google");
-  const [form, setForm] = useState({
-    identifier: "",
-    email: "",
-    username: "",
-    password: "",
-  });
-  const [errorMessage, setErrorMessage] = useState("");
+  const [mode, setMode] = useState("login");
+  const [form, setForm] = useState({ identifier: "", email: "", username: "", password: "" });
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const isLogin = mode === "login";
 
-  function handleChange(event) {
-    setForm((previous) => ({
-      ...previous,
-      [event.target.name]: event.target.value,
-    }));
-    setErrorMessage("");
+  function change(event) {
+    const { name, value } = event.target;
+    setForm((previous) => ({ ...previous, [name]: value }));
+    setError("");
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setErrorMessage("");
-    setSaving(true);
+  function switchMode(next) {
+    if (next === mode) return;
+    setMode(next);
+    setForm((previous) => ({ ...previous, password: "" }));
+    setShowPassword(false);
+    setError("");
+  }
 
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    setSaving(true);
     try {
-      const user = mode === "login"
+      const user = isLogin
         ? await api.login(form.identifier, form.password)
         : await api.signup(form.email, form.username, form.password);
       onAuthenticated(user);
-    } catch (error) {
-      setErrorMessage(error.message || "Authentication failed.");
+    } catch (failure) {
+      setError(failure.message || "Authentication failed.");
     } finally {
       setSaving(false);
     }
-  }
-
-  const isLogin = mode === "login";
-  const isGoogle = mode === "google";
-
-  async function startGoogleLogin() {
-    setSaving(true);
-    setErrorMessage("");
-    try {
-      const response = await fetch("/api/health", {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!response.ok) throw new Error("Backend unavailable");
-      window.location.assign("/api/auth/google/login");
-    } catch {
-      setErrorMessage(
-        "The backend is unavailable on port 8080. Start Docker Desktop and run docker compose up -d --build, then try again."
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (isGoogle) {
-    return (
-      <main className="page-content auth-page">
-        <div className="panel auth-panel">
-          <div className="policy-title">
-            <ShieldCheck size={25} />
-            <h2>Welcome to Spendwise</h2>
-          </div>
-          <p>Sign in securely to manage your protected shopping policy.</p>
-
-          {errorMessage && (
-            <div className="policy-message error-message">{errorMessage}</div>
-          )}
-
-          <button
-            className="save-button"
-            type="button"
-            disabled={saving}
-            onClick={startGoogleLogin}
-          >
-            {saving ? "Connecting..." : "Continue with Google"}
-          </button>
-
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => {
-              setMode("login");
-              setErrorMessage("");
-            }}
-          >
-            Use email and password instead
-          </button>
-        </div>
-      </main>
-    );
   }
 
   return (
-    <main className="page-content auth-page">
-      <div className="panel auth-panel">
-        <div className="policy-title">
-          <ShieldCheck size={25} />
-          <h2>{isLogin ? "Welcome back" : "Create your account"}</h2>
+    <div className="auth-workspace">
+      <aside className="auth-intro">
+        <div className="auth-intro-mark"><ShieldCheck size={34} /></div>
+        <span className="eyebrow">SPENDWISE ACCESS</span>
+        <h2>{isLogin ? "Pick up where you left off." : "Make smarter purchases."}</h2>
+        <ul>
+          <li><ShoppingCart size={16} /> Take your saved cart across devices</li>
+          <li><Sparkles size={16} /> See why offers fit your search</li>
+          <li><ShieldCheck size={16} /> Keep checkout within your limits</li>
+        </ul>
+      </aside>
+      <section className="auth-form-area" aria-labelledby="auth-title">
+        <div className="auth-mode" role="group" aria-label="Account access">
+          <button type="button" aria-pressed={isLogin} disabled={saving} onClick={() => switchMode("login")}>Sign in</button>
+          <button type="button" aria-pressed={!isLogin} disabled={saving} onClick={() => switchMode("signup")}>Register</button>
         </div>
-        <p>Sign in to manage your protected shopping policy.</p>
-
-        {errorMessage && (
-          <div className="policy-message error-message">{errorMessage}</div>
-        )}
-
-        <form className="policy-form" onSubmit={handleSubmit}>
+        <h3 id="auth-title">{isLogin ? "Sign in to Spendwise" : "Create your account"}</h3>
+        <a className="reset-button auth-google" href={isLogin ? "/api/auth/google/login" : "/api/auth/google/signup"}>
+          <span aria-hidden="true">G</span> Continue with Google <ArrowRight size={15} />
+        </a>
+        <p className="auth-divider">or continue with email</p>
+        {error && <div className="policy-message error-message" role="alert">{error}</div>}
+        <form className="auth-credentials" onSubmit={submit}>
           {isLogin ? (
-            <div className="form-group">
-              <label htmlFor="identifier">Email or username</label>
-              <input
-                id="identifier"
-                name="identifier"
-                value={form.identifier}
-                onChange={handleChange}
-                required
-                autoComplete="username"
-              />
-            </div>
+            <label className="form-group">
+              <span>Email or username</span>
+              <input name="identifier" value={form.identifier} onChange={change} required autoComplete="username" disabled={saving} />
+            </label>
           ) : (
             <>
-              <div className="form-group">
-                <label htmlFor="email">Email</label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  required
-                  autoComplete="email"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="username">Username</label>
-                <input
-                  id="username"
-                  name="username"
-                  value={form.username}
-                  onChange={handleChange}
-                  required
-                  autoComplete="username"
-                />
-              </div>
+              <label className="form-group">
+                <span>Email</span>
+                <input name="email" type="email" value={form.email} onChange={change} autoComplete="email"
+                  maxLength={320} required disabled={saving} />
+              </label>
+              <label className="form-group">
+                <span>Username</span>
+                <input name="username" value={form.username} onChange={change} autoComplete="username"
+                  minLength={3} maxLength={32} pattern="[A-Za-z0-9._\\-]+" aria-describedby="auth-username-help"
+                  required disabled={saving} />
+                <small id="auth-username-help">3–32 characters. Letters, numbers, periods, underscores, and hyphens.</small>
+              </label>
             </>
           )}
-
           <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              minLength="12"
-              value={form.password}
-              onChange={handleChange}
-              required
-              autoComplete={isLogin ? "current-password" : "new-password"}
-            />
+            <label htmlFor="auth-password">Password</label>
+            <div className="auth-password">
+              <input id="auth-password" name="password" type={showPassword ? "text" : "password"}
+                value={form.password} onChange={change} required minLength={isLogin ? undefined : 12} maxLength={128}
+                aria-describedby={isLogin ? undefined : "auth-password-help"}
+                autoComplete={isLogin ? "current-password" : "new-password"} disabled={saving} />
+              <button type="button" className="text-button" aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword} onClick={() => setShowPassword((visible) => !visible)}>
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
+            {!isLogin && <small id="auth-password-help">{Math.min(form.password.length, 12)} / 12 minimum characters</small>}
           </div>
-
           <button className="save-button" type="submit" disabled={saving}>
-            {saving ? "Please wait..." : isLogin ? "Sign in" : "Create account"}
+            {saving ? "Working…" : isLogin ? "Sign in" : "Create account"} <ArrowRight size={16} />
           </button>
         </form>
-
-        <button
-          className="text-button"
-          type="button"
-          onClick={() => {
-            setMode(isLogin ? "signup" : "login");
-            setErrorMessage("");
-          }}
-        >
-          {isLogin ? "Need an account? Sign up" : "Already have an account? Sign in"}
-        </button>
-      </div>
-    </main>
+      </section>
+    </div>
   );
 }

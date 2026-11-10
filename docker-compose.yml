@@ -55,8 +55,8 @@ services:
       PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
       PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
       PAYPAL_BASE_URL: ${PAYPAL_BASE_URL:-https://api-m.sandbox.paypal.com}
-      PAYPAL_RETURN_URL: ${PAYPAL_RETURN_URL:-http://localhost:3000/checkout/return}
-      PAYPAL_CANCEL_URL: ${PAYPAL_CANCEL_URL:-http://localhost:3000/checkout/cancel}
+      PAYPAL_RETURN_URL: ${PAYPAL_RETURN_URL:-http://localhost:5173/checkout/return}
+      PAYPAL_CANCEL_URL: ${PAYPAL_CANCEL_URL:-http://localhost:5173/checkout/cancel}
 
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}

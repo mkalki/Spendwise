@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import PolicySettings from "./pages/PolicySettings";
 import ShoppingAssistant from "./pages/ShoppingAssistant";
 import Products from "./pages/Products";
+import Cart from "./pages/Cart";
 import Transactions from "./pages/Transactions";
 import Landing from "./pages/Landing";
 import CheckoutReturn from "./pages/CheckoutReturn";
@@ -90,13 +91,15 @@ export default function App() {
 
             <Route
               path="/assistant"
-              element={<ShoppingAssistant key={location.search} />}
+              element={<ShoppingAssistant key={location.search} userId={user.id} />}
             />
 
             <Route
               path="/products"
-              element={<Products />}
+              element={<Products userId={user.id} />}
             />
+
+            <Route path="/cart" element={<Cart key={user.id} />} />
 
             <Route
               path="/transactions"

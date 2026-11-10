@@ -1,7 +1,15 @@
 package com.spendwise.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.spendwise.product.entity.ProductCandidate;
 import com.spendwise.product.entity.ShoppingPreferences;
 import com.spendwise.product.entity.ShoppingSearchSession;
 import com.spendwise.product.dto.ShoppingPreferencesResponse;
@@ -26,6 +34,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -33,6 +42,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -44,6 +55,7 @@ import static org.mockito.Mockito.when;
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest
+@AutoConfigureMockMvc
 @TestPropertySource(properties = {
     "spring.security.oauth2.client.registration.google.client-id=test-client-id",
     "spring.security.oauth2.client.registration.google.client-secret=test-client-secret"
@@ -64,6 +76,7 @@ class ShoppingPersistenceIntegrationTest {
     @Autowired private AuditEventRepository auditEventRepository;
     @Autowired private AuditService auditService;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private MockMvc mvc;
     @MockitoBean private GeminiService geminiService;
     @MockitoBean private Channel3Client channel3Client;
 
@@ -80,6 +93,66 @@ class ShoppingPersistenceIntegrationTest {
         searchSessionRepository.deleteAll();
         preferencesRepository.deleteAll();
         auditEventRepository.deleteAll();
+    }
+
+    @Test
+    void cartAndCheckoutDetailsFollowTheSameEmailAcrossSessionsAndStayPrivate() throws Exception {
+        var signup = mvc.perform(post("/api/auth/signup").with(csrf()).contentType("application/json")
+                .content("""
+                        {"email":"cart-owner@example.com","username":"cart-owner","password":"test-password-123"}
+                        """)).andExpect(status().isCreated()).andReturn();
+        var first = (MockHttpSession) signup.getRequest().getSession(false);
+        String owner = objectMapper.readTree(signup.getResponse().getContentAsString()).path("id").asText();
+        var search = searchSessionRepository.save(new ShoppingSearchSession(
+                UUID.randomUUID(), owner, "headphones", "headphones", new BigDecimal("100.00")));
+        var candidate = candidateRepository.save(new ProductCandidate(UUID.randomUUID(), search, "catalog-id",
+                "Studio headphones", "Acme", null, "store.example", "https://store.example/headphones",
+                new BigDecimal("45.00"), "USD", true, null));
+        var rejected = candidateRepository.save(new ProductCandidate(UUID.randomUUID(), search, "rejected-id",
+                "Over budget", "Acme", null, "store.example", "https://store.example/rejected",
+                new BigDecimal("120.00"), "USD", false, "Over budget"));
+        String cartItem = "/api/v1/cart/items/" + candidate.getId();
+
+        mvc.perform(put(cartItem).session(first)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/v1/cart/items/" + rejected.getId()).session(first).with(csrf()))
+                .andExpect(status().isConflict());
+        mvc.perform(put(cartItem).session(first).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(put(cartItem).session(first).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(put("/api/v1/cart/details").session(first).with(csrf()).contentType("application/json")
+                .content("""
+                        {"shipping":{"fullName":"Test Shopper","line1":"100 Test Street","city":"Example",
+                          "countryCode":"US"},"billing":{"fullName":"Test Shopper","line1":"200 Billing Street",
+                          "city":"Example","countryCode":"US"}}
+                        """)).andExpect(status().isOk());
+
+        var login = mvc.perform(post("/api/auth/login").with(csrf()).contentType("application/json")
+                .content("""
+                        {"identifier":"CART-OWNER@example.com","password":"test-password-123"}
+                        """)).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(owner)).andReturn();
+        var second = (MockHttpSession) login.getRequest().getSession(false);
+        assertThat(second.getId()).isNotEqualTo(first.getId());
+        mvc.perform(get("/api/v1/cart").session(second)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].candidateId").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$[0].searchSessionId").value(search.getId().toString()))
+                .andExpect(jsonPath("$[0].price").value(45.0))
+                .andExpect(jsonPath("$[0].currencyCode").value("USD"));
+        mvc.perform(get("/api/v1/cart/details").session(second)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.shipping.line1").value("100 Test Street"))
+                .andExpect(jsonPath("$.billing.line1").value("200 Billing Street"));
+
+        var other = mvc.perform(post("/api/auth/signup").with(csrf()).contentType("application/json")
+                .content("""
+                        {"email":"cart-other@example.com","username":"cart-other","password":"test-password-123"}
+                        """)).andExpect(status().isCreated()).andReturn();
+        var stranger = (MockHttpSession) other.getRequest().getSession(false);
+        mvc.perform(get("/api/v1/cart").session(stranger)).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/v1/cart/details").session(stranger)).andExpect(jsonPath("$.shipping").doesNotExist());
+        mvc.perform(put(cartItem).session(stranger).with(csrf())).andExpect(status().isNotFound());
+        mvc.perform(delete(cartItem).session(stranger).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/cart").session(first)).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(delete(cartItem).session(second).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/cart").session(first)).andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test
@@ -127,7 +200,8 @@ class ShoppingPersistenceIntegrationTest {
                 .thenReturn(new GeminiShoppingIntent("quiet laptop", "laptop", null, null, null, java.util.List.of()));
         when(channel3Client.search(anyString(), any(), anyString(), anyString())).thenReturn(objectMapper.readTree("""
                 {"products":[
-                  {"id":"within-pref","title":"Acme Quiet Laptop","brands":[{"name":"Acme"}],"offers":[
+                  {"id":"within-pref","title":"Acme Quiet Laptop","brands":[{"name":"Acme"}],
+                   "ratings":{"value":4.6,"count":120,"source_count":3},"offers":[
                     {"domain":"preferred.example","url":"https://preferred.example/item","availability":"InStock",
                      "price":{"price":42.00,"currency":"USD"}}]},
                   {"id":"over-pref","title":"Acme Quiet Laptop Plus","brands":[{"name":"Acme"}],"offers":[
@@ -138,6 +212,7 @@ class ShoppingPersistenceIntegrationTest {
         when(geminiService.explainShoppingCandidates(eq("Find a quiet laptop"), any(), any()))
                 .thenAnswer(invocation -> {
                     java.util.List<GeminiRecommendationCandidate> candidates = invocation.getArgument(2);
+                    assertThat(candidates.getFirst().rating().count()).isEqualTo(120);
                     var id = candidates.getFirst().candidateId();
                     return new GeminiRecommendationResult(java.util.List.of(id),
                             java.util.Map.of(id, "Matches the saved Acme preference and quiet request."),
@@ -151,9 +226,13 @@ class ShoppingPersistenceIntegrationTest {
         assertThat(result.intent().requestedMaxPrice()).isEqualTo("45.00");
         assertThat(result.eligibleCandidates()).hasSize(1);
         assertThat(result.eligibleCandidates().getFirst().price()).isEqualTo("42.00");
+        assertThat(result.aiRanked()).isTrue();
+        assertThat(result.eligibleCandidates().getFirst().rating().value()).isEqualByComparingTo("4.6");
+        assertThat(result.eligibleCandidates().getFirst().rating().sourceCount()).isEqualTo(3);
         assertThat(result.eligibleCandidates().getFirst().recommendationExplanation())
                 .isEqualTo("Matches the saved Acme preference and quiet request.");
         assertThat(result.rejectedCandidates()).hasSize(1);
+        assertThat(result.rejectedCandidates().getFirst().rating()).isNull();
         assertThat(result.rejectedCandidates().getFirst().rejectionReason()).contains("maximum product price");
         verify(channel3Client).search("quiet laptop", new BigDecimal("45.00"), "US", "USD");
         verify(geminiService).explainShoppingCandidates(eq("Find a quiet laptop"),

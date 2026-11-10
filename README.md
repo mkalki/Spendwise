@@ -54,6 +54,19 @@ PBKDF2 hashes. Google login and signup are available at
 `/api/auth/google/login` and `/api/auth/google/signup`; first Google sign-in
 creates the account when its verified email is unused.
 
+### Cart and checkout details
+
+The same account sees the same cart, delivery address, and billing address on
+devices connected to the same Spendwise deployment. Separate local Docker
+databases have separate accounts and carts, even if the email addresses match.
+
+Add an eligible offer from Products, then open Cart and select an offer to
+check out. Spendwise rechecks the offer and spending policy before sending you
+to PayPal Sandbox. The cart can hold multiple offers. Each Sandbox checkout
+handles one offer, and the retailer link is where actual purchases are made.
+Payment credentials are entered on PayPal. Spendwise saves only the address
+details entered in the cart.
+
 Set `CHANNEL3_API_KEY` to enable live shopping search and `PAYPAL_CLIENT_ID` /
 `PAYPAL_CLIENT_SECRET` to enable Sandbox checkout. Set `PAYPAL_WEBHOOK_ID` to
 the webhook registration ID created under the same PayPal Sandbox REST app as
@@ -146,13 +159,13 @@ first; obtain a CSRF token from `GET /api/auth/csrf` before trying a
 state-changing request. Shopping search uses Gemini to structure the request
 before Channel3 search. AI ranking can only reorder eligible Channel3 result
 IDs; policy enforcement and all product facts remain server-controlled.
-Spring AI framework adoption and the frontend remain future work.
+Spring AI framework adoption remains future work.
 
 Schema additions are in `V2__add_shopping_and_checkout_api.sql`,
 `V3__retain_search_price_limits.sql`, `V4__create_user_accounts.sql`, and
 `V5__repair_payment_candidate_reference.sql`, `V6__add_shopping_preferences.sql`,
-and `V7__track_paypal_refunds.sql`. The repair migration restores the
-optional candidate foreign key if a database drifted after V2. Earlier
+`V7__track_paypal_refunds.sql`, and `V8__add_cart_and_checkout_details.sql`.
+The repair migration restores the optional candidate foreign key if a database drifted after V2. Earlier
 migrations are not edited.
 
 ## Testing

@@ -133,7 +133,31 @@ export const api = {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, sortBy: "AI_RECOMMENDED" }),
+    });
+  },
+
+  getCart() {
+    return request("/v1/cart");
+  },
+
+  addToCart(candidateId) {
+    return request(`/v1/cart/items/${candidateId}`, { method: "PUT" });
+  },
+
+  removeFromCart(candidateId) {
+    return request(`/v1/cart/items/${candidateId}`, { method: "DELETE" });
+  },
+
+  getCheckoutDetails() {
+    return request("/v1/cart/details");
+  },
+
+  saveCheckoutDetails(details) {
+    return request("/v1/cart/details", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(details),
     });
   },
 
@@ -150,7 +174,8 @@ export const api = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Idempotency-Key": crypto.randomUUID(),
+        "Idempotency-Key": Array.from(crypto.getRandomValues(new Uint8Array(16)),
+          (byte) => byte.toString(16).padStart(2, "0")).join(""),
       },
       body: JSON.stringify({ searchSessionId, candidateId }),
     });

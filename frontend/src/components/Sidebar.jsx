@@ -6,6 +6,7 @@ import {
   SlidersHorizontal,
   MessageSquare,
   ShoppingBag,
+  ShoppingCart,
   Receipt,
   ShieldCheck,
 } from "lucide-react";
@@ -30,6 +31,11 @@ const menuItems = [
     name: "Spending Policies",
     path: "/policies",
     icon: SlidersHorizontal,
+  },
+  {
+    name: "Cart",
+    path: "/cart",
+    icon: ShoppingCart,
   },
   {
     name: "Transactions",
@@ -69,6 +75,7 @@ export default function Sidebar() {
               to={item.path}
               end={item.path === "/"}
               title={item.name}
+              aria-label={item.name}
               className={({ isActive }) =>
                 isActive
                   ? "nav-link active"

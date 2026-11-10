@@ -1,23 +1,26 @@
-import { useMemo, useState } from "react";
-import { CheckCircle2, ExternalLink, ShieldCheck, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { CheckCircle2, ExternalLink, ShieldCheck, ShoppingCart, SlidersHorizontal, Sparkles, Star, XCircle } from "lucide-react";
 import { api } from "../services/api";
+import "./Shopping.css";
 
-function ProductCard({ product, onCheckout, checkoutLoading }) {
-  const eligible = Boolean(product.eligible);
+const defaults = { sort: "recommended", brand: "", merchant: "", max: "", status: "all" };
+const reviewCount = new Intl.NumberFormat();
+
+function ProductCard({ product, pick, added, busy, disabled, onAdd }) {
+  const eligible = product.eligible;
+  const StatusIcon = eligible ? CheckCircle2 : XCircle;
 
   return (
     <article className="panel product-card">
       <div className="product-media">
         {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.productTitle} className="product-image" />
+          <img src={product.imageUrl} alt={product.productTitle} className="product-image" loading="lazy" />
         ) : (
-          <div className="product-image product-image-placeholder" aria-hidden="true">
-            <ShoppingBagIcon />
-          </div>
+          <div className="product-image product-image-placeholder" aria-hidden="true"><ShieldCheck size={26} /></div>
         )}
-        <span className={eligible ? "product-status eligible" : "product-status rejected"}>
-          {eligible ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
-          {eligible ? "Eligible" : "Not eligible"}
+        <span className={`product-status ${eligible ? "eligible" : "rejected"}`}>
+          <StatusIcon size={13} /> {eligible ? "Eligible" : "Not eligible"}
         </span>
       </div>
       <div className="product-card-content">
@@ -25,132 +28,173 @@ function ProductCard({ product, onCheckout, checkoutLoading }) {
           <span>{product.brand || "Product"}</span>
           <span>{product.merchantName || "Merchant unavailable"}</span>
         </div>
+        {pick && <span className="product-pick"><Sparkles size={13} /> {pick}</span>}
         <h3>{product.productTitle}</h3>
-        {product.description && <p className="product-description">{product.description}</p>}
-        <strong className="product-price">{product.currencyCode} {product.price}</strong>
-        <div className={eligible ? "eligibility-note eligible-note" : "eligibility-note rejected-note"}>
-          {eligible ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
+        <div className="product-rating">
+          <Star size={14} aria-hidden="true" />
+          {product.rating ? (
+            <span><strong>{product.rating.value} / 5</strong> · {reviewCount.format(product.rating.count)} reviews
+              {product.rating.sourceCount > 0 && ` from ${product.rating.sourceCount} rating sources`}</span>
+          ) : <span>No customer rating available</span>}
+        </div>
+        {product.price && <strong className="product-price">{product.currencyCode} {product.price}</strong>}
+        {eligible && <div className="product-fit">
+          <strong>{pick ? "Why this is a top pick" : "Why this offer is shown"}</strong>
+          <p>{product.recommendationExplanation ||
+            `Channel3 matched this offer from ${product.merchantName || "the listed retailer"} to your search. Its listed price of ${product.currencyCode} ${product.price} fits your current search and spending limits.`}</p>
+        </div>}
+        {product.description && <details className="product-details">
+          <summary>Product details</summary><p>{product.description}</p>
+        </details>}
+        <div className={`eligibility-note ${eligible ? "eligible-note" : "rejected-note"}`}>
+          <StatusIcon size={15} />
           <span>{eligible ? "Within your active spending policy" : product.rejectionReason || "Rejected by your active spending policy"}</span>
         </div>
-        {eligible && (
-          <button
-            className="save-button product-checkout-button"
-            type="button"
-            onClick={() => onCheckout(product)}
-            disabled={checkoutLoading}
-          >
-            {checkoutLoading ? "Preparing checkout..." : "Continue to checkout"}
-          </button>
-        )}
-        {product.offerUrl && (
-          <a href={product.offerUrl} target="_blank" rel="noreferrer">
-            Visit retailer <ExternalLink size={13} />
-          </a>
-        )}
+        {eligible && (added ? (
+          <Link className="reset-button product-checkout-button" to="/cart"><CheckCircle2 size={16} /> In cart · View cart</Link>
+        ) : (
+          <button className="save-button product-checkout-button" type="button" onClick={() => onAdd(product)}
+            disabled={disabled}><ShoppingCart size={16} /> {busy ? "Adding…" : "Add to cart"}</button>
+        ))}
+        {product.offerUrl && <a href={product.offerUrl} target="_blank" rel="noreferrer">
+          Retailer listing and reviews <ExternalLink size={13} />
+        </a>}
       </div>
     </article>
   );
 }
 
-function ShoppingBagIcon() {
-  return <ShieldCheck size={26} />;
+function readResult(userId) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem("spendwise_search_result"));
+    return saved?.userId === userId ? saved.result : null;
+  } catch {
+    return null;
+  }
 }
 
-export default function Products() {
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const result = useMemo(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem("spendwise_search_result")) || null;
-    } catch {
-      return null;
-    }
-  }, []);
+function availableValues(products, field) {
+  return [...new Set(products.map((product) => product[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
 
-  if (!result) {
-    return (
-      <div className="panel placeholder-page">
-        <h2>Product Discovery</h2>
-        <p>Search from the Shopping Assistant to see policy-filtered products.</p>
+function compareOffers(a, b, sort) {
+  if (sort === "rating") {
+    return (b.rating?.value ?? -1) - (a.rating?.value ?? -1) || (b.rating?.count ?? 0) - (a.rating?.count ?? 0);
+  }
+  if (sort === "low" || sort === "high") {
+    if (a.price == null || b.price == null) return Number(a.price == null) - Number(b.price == null);
+    if (a.currencyCode !== b.currencyCode) return a.currencyCode.localeCompare(b.currencyCode);
+    return (Number(a.price) - Number(b.price)) * (sort === "high" ? -1 : 1);
+  }
+  return 0;
+}
+
+export default function Products({ userId }) {
+  const [filters, setFilters] = useState(defaults);
+  const [saved, setSaved] = useState(null);
+  const [adding, setAdding] = useState(null);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const result = readResult(userId);
+
+  useEffect(() => {
+    let active = true;
+    api.getCart().then((cart) => {
+      if (active) setSaved(cart.map(({ candidateId }) => candidateId));
+    }).catch((failure) => {
+      if (!active) return;
+      setSaved([]);
+      setError(failure.message);
+    });
+    return () => { active = false; };
+  }, [userId]);
+
+  async function add(product) {
+    setAdding(product.candidateId);
+    setStatus("");
+    setError("");
+    try {
+      await api.addToCart(product.candidateId);
+      setSaved((current) => [...current, product.candidateId]);
+      setStatus(`${product.productTitle} added to your cart.`);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setAdding(null);
+    }
+  }
+
+  function change(event) {
+    const { name, value } = event.target;
+    setFilters((current) => ({ ...current, [name]: value }));
+  }
+
+  if (!result) return (
+    <section className="panel cart-list">
+      <h2>Product discovery</h2>
+      <p>Ask the Shopping Assistant for products to see recommendations and offers.</p>
+      <div className="shop-actions">
+        <Link className="save-button" to="/assistant">Search products</Link>
+        <Link className="reset-button" to="/cart">View cart</Link>
       </div>
-    );
-  }
+    </section>
+  );
 
-  async function handleCheckout(product) {
-    setSelectedProduct(product);
-    setCheckoutLoading(true);
-    setErrorMessage("");
-    try {
-      const checkout = await api.createCheckout(result.searchSessionId, product.candidateId);
-      sessionStorage.setItem("spendwise_checkout_id", checkout.checkoutSessionId);
-      if (!checkout.approvalUrl) {
-        throw new Error("PayPal did not return an approval URL.");
-      }
-      window.location.assign(checkout.approvalUrl);
-    } catch (error) {
-      setErrorMessage(error.message || "Unable to prepare checkout.");
-      setCheckoutLoading(false);
-    }
-  }
+  const all = [...result.eligibleCandidates, ...result.rejectedCandidates];
+  const filtered = all.filter((product) =>
+    (!filters.brand || filters.brand === product.brand)
+    && (!filters.merchant || filters.merchant === product.merchantName)
+    && (!filters.max || (product.price != null && product.currencyCode === result.intent?.currencyCode
+      && Number(product.price) <= Number(filters.max)))
+    && (filters.status === "all" || product.eligible === (filters.status === "eligible")))
+    .sort((a, b) => compareOffers(a, b, filters.sort));
+  const top = result.eligibleCandidates[0]?.candidateId;
 
   return (
     <div className="product-results">
-      {errorMessage && <div className="policy-message error-message">{errorMessage}</div>}
-      {selectedProduct && !checkoutLoading && (
-        <div className="panel checkout-approval">
-          <div className="checkout-approval-icon"><ShieldCheck size={20} /></div>
-          <div>
-            <span className="section-kicker">CHECKOUT PREVIEW</span>
-            <h3>Ready for secure approval</h3>
-            <p>{selectedProduct.productTitle} is within your active spending policy. PayPal Sandbox will open to authorize the reserved amount.</p>
-          </div>
-        </div>
-      )}
-      <div className="panel results-panel">
-        <div className="panel-heading">
+      <section className="panel results-panel">
+        <div className="shop-heading">
           <div>
             <span className="eyebrow">POLICY-AWARE DISCOVERY</span>
-            <h3>{result.intent?.normalizedQuery || "Search results"}</h3>
-            <p>{result.recommendation || "Results filtered by your spending policy."}</p>
+            <h2>{result.intent?.normalizedQuery || "Search results"}</h2>
+            <p className="shop-muted">{result.recommendation || "Results checked against your spending policy."}</p>
           </div>
-          <ShieldCheck size={20} />
+          <Link className="reset-button" to="/cart"><ShoppingCart size={16} /> View cart</Link>
         </div>
-        <div className="product-grid">
-          {(result.eligibleCandidates || []).map((product) => (
-            <ProductCard
-              key={product.candidateId}
-              product={product}
-              onCheckout={handleCheckout}
-              checkoutLoading={checkoutLoading}
-            />
+        <div className="product-filters" aria-label="Filter and sort offers">
+          <div className="shop-heading"><strong><SlidersHorizontal size={16} /> Refine offers</strong>
+            <button type="button" className="text-button" onClick={() => setFilters(defaults)}>Clear filters</button></div>
+          <div className="product-filter-grid">
+            <label className="form-group"><span>Sort</span><select name="sort" value={filters.sort} onChange={change}>
+              <option value="recommended">Recommended</option><option value="low">Price low to high</option>
+              <option value="high">Price high to low</option><option value="rating">Highest rating</option>
+            </select></label>
+            <label className="form-group"><span>Brand</span><select name="brand" value={filters.brand} onChange={change}>
+              <option value="">All brands</option>
+              {availableValues(all, "brand").map((brand) => <option key={brand}>{brand}</option>)}
+            </select></label>
+            <label className="form-group"><span>Retailer</span><select name="merchant" value={filters.merchant} onChange={change}>
+              <option value="">All retailers</option>
+              {availableValues(all, "merchantName").map((merchant) => <option key={merchant}>{merchant}</option>)}
+            </select></label>
+            <label className="form-group"><span>Max price {result.intent?.currencyCode}</span>
+              <input name="max" type="number" min="0" step="0.01" value={filters.max} onChange={change} /></label>
+            <label className="form-group"><span>Policy status</span><select name="status" value={filters.status} onChange={change}>
+              <option value="all">All offers</option><option value="eligible">Eligible only</option>
+              <option value="rejected">Filtered out</option>
+            </select></label>
+          </div>
+        </div>
+        <p className="shop-muted" role="status">{filtered.length} of {all.length} offers {status && ` · ${status}`}</p>
+        {error && <div className="policy-message error-message" role="alert">{error}</div>}
+        {filtered.length ? <div className="product-grid">
+          {filtered.map((product) => (
+            <ProductCard key={product.candidateId} product={product} added={saved?.includes(product.candidateId)}
+              busy={adding === product.candidateId} disabled={!saved || Boolean(adding)} onAdd={add}
+              pick={product.candidateId === top && (result.aiRanked ? "AI top pick" : "Top catalog match")} />
           ))}
-        </div>
-        {!result.eligibleCandidates?.length && <div className="empty-results"><ShieldCheck size={20} /><p>No eligible products were found for this search.</p></div>}
-      </div>
-
-      {!!result.rejectedCandidates?.length && (
-        <div className="panel rejected-results">
-          <div className="panel-heading">
-            <div>
-              <span className="section-kicker">PROTECTION REVIEW</span>
-              <h3>Filtered by your policy</h3>
-              <p>These results remain visible so you can understand the protection decision.</p>
-            </div>
-            <XCircle size={20} />
-          </div>
-          <div className="product-grid">
-            {result.rejectedCandidates.map((product) => (
-              <ProductCard
-                key={product.candidateId}
-                product={product}
-                onCheckout={() => {}}
-                checkoutLoading={false}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+        </div> : <div className="empty-results"><ShieldCheck size={20} /><p>No offers match these filters.</p></div>}
+      </section>
     </div>
   );
 }

@@ -154,8 +154,9 @@ public class GeminiService {
                     objects containing candidateId and explanation (one concise sentence, at most 400 characters).
                     Use only supplied candidate IDs. Explain why each item matches the customer's prompt and saved
                     preferences better or worse than the other listed options. Base claims only on supplied prompt,
-                    preferences, title, brand, merchant, price, and currency. Do not infer unprovided product specs,
-                    ratings, stock, shipping, or quality. Never change eligibility or policy. Do not emit any product
+                    preferences, title, brand, merchant, price, currency, and supplied rating rollup. Treat that rollup
+                    as aggregate review data. Do not infer review content or unprovided specs, ratings, stock, shipping,
+                    or quality. Never change eligibility or policy. Do not emit any product
                     facts other than IDs and explanations.
 
                     Input:

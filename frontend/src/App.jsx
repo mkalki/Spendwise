@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -17,8 +17,13 @@ import AmbientScene from "./components/AmbientScene";
 import { CustomCursor, ExperienceLoader } from "./components/ExperienceEffects";
 
 export default function App() {
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [location.pathname]);
 
   useEffect(() => {
     api.getCurrentUser()
@@ -56,7 +61,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell studio-shell" id="top">
       <ExperienceLoader ready={ready} />
       <CustomCursor />
       <AmbientScene />
@@ -80,7 +85,7 @@ export default function App() {
         <div className="page-content">
 
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Dashboard user={user} />} />
 
             <Route
               path="/policies"
@@ -89,7 +94,7 @@ export default function App() {
 
             <Route
               path="/assistant"
-              element={<ShoppingAssistant />}
+              element={<ShoppingAssistant key={location.search} />}
             />
 
             <Route

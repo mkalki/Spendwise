@@ -43,6 +43,24 @@ export default function AuthPage({ onAuthenticated }) {
   const isLogin = mode === "login";
   const isGoogle = mode === "google";
 
+  async function startGoogleLogin() {
+    setSaving(true);
+    setErrorMessage("");
+    try {
+      const response = await fetch("/api/health", {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error("Backend unavailable");
+      window.location.assign("http://localhost:8080/api/auth/google/login");
+    } catch {
+      setErrorMessage(
+        "The backend is unavailable on port 8080. Start Docker Desktop and run docker compose up -d --build, then try again."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (isGoogle) {
     return (
       <main className="page-content auth-page">
@@ -60,11 +78,10 @@ export default function AuthPage({ onAuthenticated }) {
           <button
             className="save-button"
             type="button"
-            onClick={() => {
-              window.location.assign("http://localhost:8080/api/auth/google/login");
-            }}
+            disabled={saving}
+            onClick={startGoogleLogin}
           >
-            Continue with Google
+            {saving ? "Connecting..." : "Continue with Google"}
           </button>
 
           <button

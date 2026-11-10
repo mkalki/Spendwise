@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import BrandMark from "./BrandMark";
 
 import {
   LayoutDashboard,
@@ -44,7 +45,7 @@ export default function Sidebar() {
       <div className="brand">
 
         <div className="brand-icon">
-          <ShieldCheck size={25} />
+          <BrandMark />
         </div>
 
         <div>

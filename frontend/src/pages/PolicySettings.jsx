@@ -20,7 +20,6 @@ const defaultPolicy = {
   maxOrderAmount: "100",
   weeklySpendingLimit: "150",
   maxOrdersPerWeek: "1",
-  currency: "USD",
   country: "US",
 };
 
@@ -39,6 +38,7 @@ export default function PolicySettings() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const [source, setSource] = useState("defaults");
+  const [previousCurrency, setPreviousCurrency] = useState(null);
 
   // Fetch saved policy when the component loads.
   useEffect(() => {
@@ -52,19 +52,19 @@ export default function PolicySettings() {
         const data = await api.getPolicy();
 
         if (data) {
+          const needsUsdLimits = data.currency && data.currency !== "USD";
+          setPreviousCurrency(needsUsdLimits ? data.currency : null);
 
           setPolicy({
-            maxItemPrice: String(data.maxItemPrice ?? 60),
+            maxItemPrice: needsUsdLimits ? "" : String(data.maxItemPrice ?? 60),
 
-            maxOrderAmount: String(data.maxOrderAmount ?? 100),
+            maxOrderAmount: needsUsdLimits ? "" : String(data.maxOrderAmount ?? 100),
 
-            weeklySpendingLimit: String(data.weeklySpendingLimit ?? 150),
+            weeklySpendingLimit: needsUsdLimits ? "" : String(data.weeklySpendingLimit ?? 150),
 
             maxOrdersPerWeek: String(
               data.maxOrdersPerWeek ?? 1
             ),
-
-            currency: data.currency ?? "USD",
 
             country: data.country ?? "US",
           });
@@ -162,10 +162,6 @@ export default function PolicySettings() {
         "Maximum order amount cannot exceed weekly limit.";
     }
 
-    if (!policy.currency) {
-      newErrors.currency = "Select a currency.";
-    }
-
     if (!policy.country) {
       newErrors.country = "Select a country.";
     }
@@ -196,7 +192,7 @@ export default function PolicySettings() {
         maxOrderAmount: policy.maxOrderAmount,
         weeklySpendingLimit: policy.weeklySpendingLimit,
         maxOrdersPerWeek: policy.maxOrdersPerWeek,
-        currency: policy.currency,
+        currency: "USD",
         country: policy.country,
       };
 
@@ -211,12 +207,12 @@ export default function PolicySettings() {
             savedPolicy.weeklySpendingLimit ?? payload.weeklySpendingLimit
           ),
           maxOrdersPerWeek: String(savedPolicy.maxOrdersPerWeek ?? payload.maxOrdersPerWeek),
-          currency: savedPolicy.currency ?? payload.currency,
           country: savedPolicy.country ?? payload.country,
         });
       }
 
       setSource("backend");
+      setPreviousCurrency(null);
 
       setMessage("Your spending policy has been saved successfully.");
 
@@ -246,10 +242,7 @@ export default function PolicySettings() {
 
   }
 
-  const currencySymbol =
-    policy.currency === "USD" ? "$" :
-    policy.currency === "INR" ? "₹" :
-    policy.currency;
+  const currencySymbol = "$";
 
   return (
     <div className="policy-page">
@@ -278,6 +271,11 @@ export default function PolicySettings() {
 
       {loading && (
         <div className="policy-message info-message">Loading your saved policy...</div>
+      )}
+      {!loading && previousCurrency && (
+        <div className="policy-message info-message">
+          Your saved policy uses {previousCurrency}. Review your spending limits in USD, then save to switch.
+        </div>
       )}
       {!loading && errorMessage && (
         <div className="policy-message error-message">
@@ -310,11 +308,9 @@ export default function PolicySettings() {
             <div className="policy-fields">
               <div className="form-group">
                 <label htmlFor="currency">Currency</label>
-                <select id="currency" name="currency" value={policy.currency} onChange={handleChange} disabled={loading || saving}>
+                <select id="currency" value="USD" disabled>
                   <option value="USD">USD - US Dollar</option>
-                  <option value="INR">INR - Indian Rupee</option>
                 </select>
-                {errors.currency && <span className="field-error">{errors.currency}</span>}
               </div>
               <div className="form-group">
                 <label htmlFor="country">Country</label>

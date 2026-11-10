@@ -1,15 +1,16 @@
 import {
   Wallet,
-  ShoppingBag,
+
   ShieldCheck,
   CircleDollarSign,
   ReceiptText,
   ArrowUpRight,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 
+const ProductScene = lazy(() => import("../components/ProductScene"));
 const statDefinitions = [
   {
     title: "Total spending",
@@ -127,7 +128,7 @@ export default function Dashboard() {
           </button>
         </div>
 
-        <div className="hero-status">
+        <div className="dashboard-3d"><Suspense fallback={null}><ProductScene /></Suspense></div><div className="hero-status">
           <span className="hero-status-dot" />
           <span>Protection active</span>
         </div>

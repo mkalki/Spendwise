@@ -10,7 +10,7 @@ import PolicySettings from "./pages/PolicySettings";
 import ShoppingAssistant from "./pages/ShoppingAssistant";
 import Products from "./pages/Products";
 import Transactions from "./pages/Transactions";
-import AuthPage from "./pages/AuthPage";
+import Landing from "./pages/Landing";
 import CheckoutReturn from "./pages/CheckoutReturn";
 import { api } from "./services/api";
 import AmbientScene from "./components/AmbientScene";
@@ -50,7 +50,7 @@ export default function App() {
         <ExperienceLoader ready={ready} />
         <CustomCursor />
         <AmbientScene />
-        <AuthPage onAuthenticated={setUser} />
+        <Landing onAuthenticated={setUser} />
       </>
     );
   }
@@ -125,3 +125,4 @@ export default function App() {
     </div>
   );
 }
+

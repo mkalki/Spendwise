@@ -9,6 +9,7 @@ Channel3 discovery links and a PayPal Sandbox payment are separate actions: the 
 ## Current stack
 
 - Java 21, Spring Boot 3.5, Maven, PostgreSQL
+- React and Vite frontend
 - Channel3 product discovery and PayPal Orders v2 Sandbox integrations
 - Gemini intent extraction and ID-only product ranking over actual Channel3 search results
 
@@ -18,6 +19,7 @@ Channel3 discovery links and a PayPal Sandbox payment are separate actions: the 
 2. Start PostgreSQL and the API with `docker compose up -d --build`. Compose starts a PostgreSQL 18 container with a named persistent volume, waits for its health check, then starts the backend against that database.
 3. Flyway applies pending migrations from `backend/src/main/resources/db/migration` on API startup; Hibernate validates the mapped schema and does not create tables. Add schema changes as new `V2__...sql`, `V3__...sql` files; do not edit a migration after it has run in a shared database.
 4. Check the API at `http://localhost:8080/api/health` and PostgreSQL on `localhost:${POSTGRES_PORT:-5432}`.
+5. From the repository root, install frontend dependencies with `npm --prefix frontend ci` and start Vite with `npm --prefix frontend run dev`. Open `http://localhost:5173`.
 
 ### Google sign-in
 
@@ -217,5 +219,5 @@ k6 run load-tests/spendwise-api.js
 | Error handling, validation, and Swagger | Implemented with stable JSON API errors and documented routes. |
 | Unit, controller, and database tests | Implemented; PostgreSQL Testcontainers coverage is skipped when Docker is unavailable. |
 | Load testing | k6 script added for authenticated, database-backed API requests. |
-| Frontend | Not implemented; the repository currently contains the backend API. |
+| Frontend | React app with sign-in, a spending dashboard, the shopping assistant, product filters and recommendations, a saved cart, and PayPal Sandbox checkout. |
 | Live Sandbox lifecycle test | Still needs a configured webhook, Sandbox buyer approval, and end-to-end confirmation in the developer account. |

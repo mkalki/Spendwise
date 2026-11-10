@@ -23,9 +23,6 @@ public class AccountUserDetailsService implements UserDetailsService {
                 .findByUsernameIgnoreCaseOrEmailIgnoreCase(normalized, normalized)
                 .filter(candidate -> candidate.getPasswordHash() != null)
                 .orElseThrow(() -> new UsernameNotFoundException("Account not found"));
-        if (!account.isEmailVerified()) {
-            throw new EmailNotVerifiedAuthenticationException();
-        }
         return new AccountPrincipal(account);
     }
 }

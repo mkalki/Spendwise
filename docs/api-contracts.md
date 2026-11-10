@@ -11,7 +11,8 @@ Before a state-changing auth request, fetch `GET /api/auth/csrf`, then include
 the returned header and token. The session cookie must be retained by the
 browser/client.
 
-`POST /api/auth/signup` creates an account and signs the user in:
+`POST /api/auth/signup` creates a pending password account and sends a
+verification email:
 
 ```json
 {
@@ -23,9 +24,16 @@ browser/client.
 
 Email and username are normalized to lowercase. Usernames must be 3–32
 characters and use letters, numbers, `.`, `_` or `-`. Passwords must contain at
-least 12 characters. A successful response is `201 Created` with the profile
-and an authenticated session cookie. Duplicate email or username returns
-`409 Conflict`.
+least 12 characters. A successful response is `201 Created` with the email and
+a message to check the inbox; it does not create a session. Duplicate email or
+username returns `409 Conflict`. Resend delivery configuration uses
+`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `FRONTEND_ORIGIN`.
+
+The verification link opens the frontend at `/verify-email?token=...`. The
+frontend posts the token to `POST /api/auth/verify-email`; valid links expire
+after 24 hours and can be used once. `POST /api/auth/verification/resend`
+accepts an email and returns the same `202 Accepted` message whether or not a
+pending account exists. Resends are limited to one per minute for each account.
 
 `POST /api/auth/login` accepts either the registered email or username:
 
@@ -37,7 +45,8 @@ and an authenticated session cookie. Duplicate email or username returns
 ```
 
 Successful login returns `200 OK` and starts a session. Invalid credentials
-return `401 Unauthorized`.
+return `401 Unauthorized`; a password account whose email is not verified
+returns `403 Forbidden` with `EMAIL_NOT_VERIFIED`.
 
 ### Google login and signup
 

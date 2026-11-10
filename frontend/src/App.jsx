@@ -13,6 +13,7 @@ import Cart from "./pages/Cart";
 import Transactions from "./pages/Transactions";
 import Landing from "./pages/Landing";
 import CheckoutReturn from "./pages/CheckoutReturn";
+import EmailVerificationPage from "./pages/EmailVerificationPage";
 import { api } from "./services/api";
 import AmbientScene from "./components/AmbientScene";
 import { ExperienceLoader } from "./components/ExperienceEffects";
@@ -38,6 +39,10 @@ export default function App() {
   }, []);
 
   const ready = !checkingSession;
+
+  if (location.pathname === "/verify-email") {
+    return <><ExperienceLoader ready={ready} /><AmbientScene /><EmailVerificationPage /></>;
+  }
 
   if (checkingSession) {
     return (

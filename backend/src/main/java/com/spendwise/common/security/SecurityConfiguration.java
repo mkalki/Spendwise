@@ -74,6 +74,8 @@ public class SecurityConfiguration {
                                 "/api/auth/csrf",
                                 "/api/auth/signup",
                                 "/api/auth/login",
+                                "/api/auth/verify-email",
+                                "/api/auth/verification/resend",
                                 "/api/auth/google/**",
                                 "/api/webhooks/paypal").permitAll()
                         .requestMatchers("/api/auth/me", "/api/auth/logout").authenticated()

@@ -150,6 +150,22 @@ export const api = {
     return data;
   },
 
+  async verifyEmail(token) {
+    return request("/auth/verify-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async resendVerificationEmail(email) {
+    return request("/auth/verification/resend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+  },
+
   async logout() {
     await request("/auth/logout", { method: "POST" });
     csrfToken = undefined;

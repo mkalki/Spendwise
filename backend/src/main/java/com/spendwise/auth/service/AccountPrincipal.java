@@ -61,5 +61,5 @@ public class AccountPrincipal implements UserDetails, OAuth2User, Principal {
     @Override
     public boolean isCredentialsNonExpired() { return true; }
     @Override
-    public boolean isEnabled() { return true; }
+    public boolean isEnabled() { return account.isEmailVerified(); }
 }

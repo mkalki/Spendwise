@@ -85,7 +85,9 @@ Configure `GEMINI_API_KEY` in the backend environment. Optionally set
 `GEMINI_MODEL`; it defaults to `gemini-3.8-flash`. The API key is sent in the
 `x-goog-api-key` header and is never accepted from the browser request.
 Validation errors return `400`; missing configuration returns
-`503 GEMINI_NOT_CONFIGURED`; provider failures return a stable `GEMINI_*` error.
+`503 GEMINI_NOT_CONFIGURED`; a clearly identified invalid provider key returns
+`503 GEMINI_INVALID_API_KEY`; other provider failures return a stable `GEMINI_*`
+error.
 
 Money values in responses are decimal strings plus an ISO 4217 currency code.
 The server owns the authoritative product price and all policy decisions.
@@ -429,7 +431,7 @@ Common codes include `VALIDATION_FAILED`, `POLICY_NOT_FOUND`,
 `POLICY_LIMIT_EXCEEDED`, `ORDER_FREQUENCY_LIMIT_EXCEEDED`,
 `PRODUCT_PROVIDER_NOT_CONFIGURED`, `PRODUCT_PROVIDER_TIMEOUT`,
 `PRODUCT_PROVIDER_ERROR`, `CHANNEL3_RATE_LIMIT_EXCEEDED`,
-`GEMINI_NOT_CONFIGURED`, `GEMINI_TIMEOUT`, `GEMINI_PROVIDER_ERROR`,
+`GEMINI_NOT_CONFIGURED`, `GEMINI_INVALID_API_KEY`, `GEMINI_TIMEOUT`, `GEMINI_PROVIDER_ERROR`,
 `GEMINI_INVALID_INTENT`,
 `PAYMENT_PROVIDER_NOT_CONFIGURED`, and `PAYMENT_CAPTURE_UNCONFIRMED`.
 

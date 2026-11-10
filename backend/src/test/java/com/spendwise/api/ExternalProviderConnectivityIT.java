@@ -3,12 +3,14 @@ package com.spendwise.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spendwise.integration.gemini.GeminiClient;
 import com.spendwise.integration.gemini.dto.GeminiRequest;
 import com.spendwise.payment.integration.PayPalAuthService;
 import com.spendwise.product.integration.Channel3Client;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -20,28 +22,37 @@ class ExternalProviderConnectivityIT {
     @Test
     @EnabledIfEnvironmentVariable(named = "SPENDWISE_EXTERNAL_INTEGRATION_TESTS", matches = "true")
     void reachesConfiguredGemini() {
+        String apiKey = requiredEnv("GEMINI_API_KEY");
         ClientHttpRequestFactory requestFactory = requestFactory();
         String geminiBaseUrl = env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com");
         RestClient geminiRestClient = RestClient.builder().baseUrl(geminiBaseUrl)
-                .requestFactory(requestFactory()).build();
-        GeminiClient gemini = new GeminiClient(geminiRestClient, env("GEMINI_API_KEY", ""),
+                .requestFactory(requestFactory).build();
+        GeminiClient gemini = new GeminiClient(geminiRestClient, new ObjectMapper(),
+                apiKey,
                 env("GEMINI_MODEL", "gemini-3.8-flash"));
-        assertThat(gemini.generate(new GeminiRequest("Reply with the single word OK." )).text()).isNotBlank();
+        assertThat(gemini.generate(new GeminiRequest("Reply with the single word OK.")).text()).isNotBlank();
     }
 
     @Test
+    @EnabledIfEnvironmentVariable(named = "SPENDWISE_EXTERNAL_INTEGRATION_TESTS", matches = "true")
     void reachesConfiguredChannel3() {
-        Channel3Client channel3 = new Channel3Client(requestFactory(),
-                env("CHANNEL3_BASE_URL", "https://api.trychannel3.com"), env("CHANNEL3_API_KEY", ""), 1);
+        String apiKey = requiredEnv("CHANNEL3_API_KEY");
+        ClientHttpRequestFactory requestFactory = requestFactory();
+        Channel3Client channel3 = new Channel3Client(requestFactory,
+                env("CHANNEL3_BASE_URL", "https://api.trychannel3.com"), apiKey, 1);
         JsonNode products = channel3.search("wireless headphones", null, "US", "USD");
         assertThat(products.path("products").isArray()).isTrue();
     }
 
     @Test
-    void reachesConfiguredPayPalSandbox() {
-        PayPalAuthService paypal = new PayPalAuthService(requestFactory(),
+    @EnabledIfEnvironmentVariable(named = "SPENDWISE_EXTERNAL_INTEGRATION_TESTS", matches = "true")
+    void reachesPayPalSandbox() {
+        String clientId = requiredEnv("PAYPAL_CLIENT_ID");
+        String clientSecret = requiredEnv("PAYPAL_CLIENT_SECRET");
+        ClientHttpRequestFactory requestFactory = requestFactory();
+        PayPalAuthService paypal = new PayPalAuthService(requestFactory,
                 env("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com"),
-                env("PAYPAL_CLIENT_ID", ""), env("PAYPAL_CLIENT_SECRET", ""));
+                clientId, clientSecret);
         assertThat(paypal.accessToken()).isNotBlank();
     }
 
@@ -55,11 +66,15 @@ class ExternalProviderConnectivityIT {
     private static String env(String name, String defaultValue) {
         String value = System.getenv(name);
         if (value == null || value.isBlank()) {
-            if (!defaultValue.isBlank()) {
-                return defaultValue;
-            }
-            throw new IllegalStateException(name + " must be set for external provider tests.");
+            return defaultValue;
         }
+        return value;
+    }
+
+    private static String requiredEnv(String name) {
+        String value = System.getenv(name);
+        Assumptions.assumeTrue(value != null && !value.isBlank(),
+                () -> "Skipping external provider test because " + name + " is not set.");
         return value;
     }
 }

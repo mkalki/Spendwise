@@ -40,6 +40,8 @@ public class GeminiService {
         } catch (GeminiTimeoutException exception) {
             throw new ApiException(HttpStatus.GATEWAY_TIMEOUT,
                     "GEMINI_TIMEOUT", "Gemini did not respond in time. Please try again.");
+        } catch (GeminiInvalidApiKeyException exception) {
+            throw invalidApiKeyError("AI generation");
         } catch (GeminiProviderException exception) {
             throw new ApiException(HttpStatus.BAD_GATEWAY,
                     "GEMINI_PROVIDER_ERROR", "Gemini could not complete the request.");
@@ -68,11 +70,9 @@ public class GeminiService {
         } catch (GeminiTimeoutException exception) {
             throw new ApiException(HttpStatus.GATEWAY_TIMEOUT,
                     "GEMINI_TIMEOUT", "Gemini did not respond in time. Please try again.");
+        } catch (GeminiInvalidApiKeyException exception) {
+            throw invalidApiKeyError("AI shopping search");
         } catch (GeminiProviderException exception) {
-            if (exception.isInvalidApiKey()) {
-                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
-                        "GEMINI_INVALID_API_KEY", "Gemini rejected the configured API key.");
-            }
             throw new ApiException(HttpStatus.BAD_GATEWAY,
                     "GEMINI_PROVIDER_ERROR", "Gemini could not interpret the shopping request.");
         } catch (JsonProcessingException | IllegalArgumentException exception) {
@@ -123,6 +123,8 @@ public class GeminiService {
         } catch (GeminiTimeoutException exception) {
             throw new ApiException(HttpStatus.GATEWAY_TIMEOUT,
                     "GEMINI_TIMEOUT", "Gemini did not respond in time. Please try again.");
+        } catch (GeminiInvalidApiKeyException exception) {
+            throw invalidApiKeyError("AI product recommendations");
         } catch (GeminiProviderException exception) {
             throw new ApiException(HttpStatus.BAD_GATEWAY,
                     "GEMINI_PROVIDER_ERROR", "Gemini could not rank the Channel3 products.");
@@ -189,6 +191,8 @@ public class GeminiService {
         } catch (GeminiTimeoutException exception) {
             throw new ApiException(HttpStatus.GATEWAY_TIMEOUT,
                     "GEMINI_TIMEOUT", "Gemini did not respond in time. Please try again.");
+        } catch (GeminiInvalidApiKeyException exception) {
+            throw invalidApiKeyError("AI product explanations");
         } catch (GeminiProviderException exception) {
             throw new ApiException(HttpStatus.BAD_GATEWAY,
                     "GEMINI_PROVIDER_ERROR", "Gemini could not explain the product recommendations.");
@@ -196,6 +200,12 @@ public class GeminiService {
             throw new ApiException(HttpStatus.BAD_GATEWAY,
                     "GEMINI_INVALID_RECOMMENDATIONS", "Gemini returned invalid product explanations.");
         }
+    }
+
+    private ApiException invalidApiKeyError(String operation) {
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                "GEMINI_INVALID_API_KEY",
+                operation + " is unavailable because Gemini rejected the configured API key. Check the server configuration.");
     }
 
     private GeminiShoppingIntent validateIntent(GeminiShoppingIntent intent) {

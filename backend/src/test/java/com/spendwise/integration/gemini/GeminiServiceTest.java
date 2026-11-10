@@ -64,6 +64,14 @@ class GeminiServiceTest {
     }
 
     @Test
+    void mapsInvalidApiKeyToActionableServiceUnavailableError() {
+        GeminiRequest request = new GeminiRequest("Hello");
+        when(geminiClient.generate(request)).thenThrow(new GeminiInvalidApiKeyException());
+
+        assertApiError(request, "GEMINI_INVALID_API_KEY", HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
     void extractsTypedShoppingIntentFromGeminiJson() {
         when(geminiClient.generateJson(org.mockito.ArgumentMatchers.contains("Find me a laptop under ₹70,000")))
                 .thenReturn(new GeminiResponse("gemini-3.8-flash", """

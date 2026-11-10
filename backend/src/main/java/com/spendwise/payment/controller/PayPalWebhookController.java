@@ -1,6 +1,8 @@
 package com.spendwise.payment.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.spendwise.common.exception.ApiException;
 import com.spendwise.payment.integration.PayPalWebhookVerifier;
 import com.spendwise.payment.service.PayPalWebhookService;
@@ -18,10 +20,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class PayPalWebhookController {
     private final PayPalWebhookVerifier verifier;
     private final PayPalWebhookService webhookService;
+    private final ObjectMapper objectMapper;
 
-    public PayPalWebhookController(PayPalWebhookVerifier verifier, PayPalWebhookService webhookService) {
+    public PayPalWebhookController(PayPalWebhookVerifier verifier, PayPalWebhookService webhookService,
+            ObjectMapper objectMapper) {
         this.verifier = verifier;
         this.webhookService = webhookService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping
@@ -32,8 +37,19 @@ public class PayPalWebhookController {
             @RequestHeader("PayPal-Transmission-Id") String transmissionId,
             @RequestHeader("PayPal-Transmission-Sig") String transmissionSignature,
             @RequestHeader("PayPal-Transmission-Time") String transmissionTime,
-            @RequestBody JsonNode event) {
-        if (!verifier.verify(authAlgo, certUrl, transmissionId, transmissionSignature, transmissionTime, event)) {
+            @RequestBody String rawEventJson) {
+        JsonNode event;
+        try {
+            event = objectMapper.readTree(rawEventJson);
+        } catch (JsonProcessingException exception) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PAYPAL_WEBHOOK",
+                    "The PayPal event payload is invalid.");
+        }
+        if (event == null || !event.isObject()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PAYPAL_WEBHOOK",
+                    "The PayPal event payload is invalid.");
+        }
+        if (!verifier.verify(authAlgo, certUrl, transmissionId, transmissionSignature, transmissionTime, rawEventJson)) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "PAYPAL_WEBHOOK_INVALID",
                     "PayPal webhook signature verification failed.");
         }

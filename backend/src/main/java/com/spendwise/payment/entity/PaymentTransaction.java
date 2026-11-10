@@ -109,6 +109,27 @@ public class PaymentTransaction {
         this.reservationExpiresAt = null;
     }
 
+    public void markPartiallyRefunded() {
+        if (paypalCaptureId != null && completedAt != null && !"REFUNDED".equals(status)
+                && !"REVERSED".equals(status)) {
+            this.status = "PARTIALLY_REFUNDED";
+        }
+    }
+
+    public void markRefunded() {
+        if (paypalCaptureId != null && completedAt != null) {
+            this.status = "REFUNDED";
+            this.reservationExpiresAt = null;
+        }
+    }
+
+    public void markReversed() {
+        if (paypalCaptureId != null && completedAt != null) {
+            this.status = "REVERSED";
+            this.reservationExpiresAt = null;
+        }
+    }
+
     public void markCapturing() {
         this.status = "CAPTURING";
     }
@@ -137,6 +158,9 @@ public class PaymentTransaction {
     }
 
     public void syncProviderStatus(String providerStatus, String captureId, Instant completedAt) {
+        if ("PARTIALLY_REFUNDED".equals(status) || "REFUNDED".equals(status) || "REVERSED".equals(status)) {
+            return;
+        }
         if ("COMPLETED".equals(providerStatus) && captureId != null && completedAt != null) {
             markCompleted(captureId, completedAt);
         } else if ("VOIDED".equals(providerStatus) && ("APPROVED".equals(status)

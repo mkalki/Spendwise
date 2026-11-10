@@ -11,20 +11,26 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.spendwise.audit.service.AuditService;
+import com.spendwise.integration.gemini.dto.GeminiRecommendationResult;
 import com.spendwise.common.exception.ApiException;
 import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.common.security.GeminiUserRateLimiter;
 import com.spendwise.integration.gemini.GeminiService;
+import com.spendwise.integration.gemini.dto.GeminiRecommendationCandidate;
 import com.spendwise.integration.gemini.dto.GeminiShoppingIntent;
 import com.spendwise.policy.engine.PolicyEngine;
 import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.product.dto.ShoppingSearchRequest;
+import com.spendwise.product.dto.ShoppingSortBy;
+import com.spendwise.product.dto.ShoppingPreferencesResponse;
 import com.spendwise.product.integration.Channel3Client;
 import com.spendwise.product.repository.ProductCandidateRepository;
 import com.spendwise.product.repository.ShoppingSearchSessionRepository;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +54,8 @@ class ProductSearchServiceTest {
     @Mock private ShoppingSearchSessionRepository sessionRepository;
     @Mock private ProductCandidateRepository candidateRepository;
     @Mock private PlatformTransactionManager transactionManager;
+    @Mock private ShoppingProfileService profileService;
+    @Mock private AuditService auditService;
 
     private ProductSearchService service;
 
@@ -68,7 +76,44 @@ class ProductSearchServiceTest {
                 policyService,
                 sessionRepository,
                 candidateRepository,
-                transactionManager);
+                transactionManager,
+                auditService,
+                profileService);
+    }
+
+    @Test
+    void savedPreferenceBudgetRestrictsSearchAndGeminiExplainsTheMatch() throws Exception {
+        var preferences = new ShoppingPreferencesResponse(
+                List.of("laptops"), List.of("Acme"), List.of("preferred.example"), List.of("quiet"),
+                new BigDecimal("45.00"), "USD", null);
+        when(profileService.getPreferences(OWNER)).thenReturn(preferences);
+        when(geminiService.extractShoppingIntent("Find a quiet laptop"))
+                .thenReturn(new GeminiShoppingIntent("quiet laptop", "laptop", null, null, null, List.of()));
+        when(channel3Client.search(anyString(), any(), anyString(), anyString())).thenReturn(objectMapper.readTree("""
+                {"products":[{"id":"p-pref","title":"Acme Quiet Laptop","brands":[{"name":"Acme"}],
+                  "offers":[{"domain":"preferred.example","url":"https://preferred.example/item",
+                    "availability":"InStock","price":{"price":42.00,"currency":"USD"}}]}]}
+                """));
+        when(geminiService.explainShoppingCandidates(anyString(), any(), any()))
+                .thenAnswer(invocation -> {
+                    List<GeminiRecommendationCandidate> supplied = invocation.getArgument(2);
+                    UUID candidateId = supplied.getFirst().candidateId();
+                    return new GeminiRecommendationResult(List.of(candidateId),
+                            java.util.Map.of(candidateId, "Matches your Acme and quiet preferences."),
+                            "This offer matches your saved brand and keyword preferences.");
+                });
+
+        var response = service.search(OWNER,
+                new ShoppingSearchRequest("Find a quiet laptop", ShoppingSortBy.AI_RECOMMENDED));
+
+        assertThat(response.intent().requestedMaxPrice()).isEqualTo("45.00");
+        assertThat(response.eligibleCandidates().getFirst().recommendationExplanation())
+                .isEqualTo("Matches your Acme and quiet preferences.");
+        assertThat(response.comparisonSummary()).isEqualTo("This offer matches your saved brand and keyword preferences.");
+        verify(channel3Client).search("quiet laptop", new BigDecimal("45.00"), "US", "USD");
+        verify(geminiService).explainShoppingCandidates(
+                org.mockito.ArgumentMatchers.eq("Find a quiet laptop"),
+                org.mockito.ArgumentMatchers.eq(preferences), any());
     }
 
     @Test

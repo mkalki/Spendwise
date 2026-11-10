@@ -12,6 +12,8 @@ public interface PaymentGateway {
 
     OrderStatus getOrderStatus(String paypalOrderId);
 
+    CaptureStatus getCaptureStatus(String paypalCaptureId);
+
     record OrderCreation(String orderId, String approvalUrl) {
     }
 
@@ -24,5 +26,9 @@ public interface PaymentGateway {
 
     record OrderStatus(
             String status, String referenceId, String captureId, BigDecimal amount, String currencyCode) {
+    }
+
+    record CaptureStatus(
+            String status, String captureId, String orderId, BigDecimal amount, String currencyCode) {
     }
 }

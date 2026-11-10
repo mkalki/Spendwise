@@ -12,11 +12,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.common.security.GeminiUserRateLimiter;
 import com.spendwise.integration.gemini.GeminiService;
 import com.spendwise.integration.gemini.dto.GeminiShoppingIntent;
 import com.spendwise.integration.gemini.dto.GeminiRecommendationCandidate;
+import com.spendwise.integration.gemini.dto.GeminiRecommendationResult;
+import com.spendwise.product.dto.ShoppingPreferencesResponse;
 import com.spendwise.policy.engine.PolicyEngine;
 import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.service.SpendingPolicyService;
@@ -25,6 +28,7 @@ import com.spendwise.product.repository.ProductCandidateRepository;
 import com.spendwise.product.repository.ShoppingSearchSessionRepository;
 import com.spendwise.product.service.ProductSearchService;
 import com.spendwise.product.service.ShoppingIntentService;
+import com.spendwise.product.service.ShoppingProfileService;
 import java.math.BigDecimal;
 import java.security.Principal;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +73,8 @@ class GeminiChannel3FlowIntegrationTest {
     @MockitoBean private ShoppingSearchSessionRepository sessionRepository;
     @MockitoBean private ProductCandidateRepository candidateRepository;
     @MockitoBean private PlatformTransactionManager transactionManager;
+    @MockitoBean private AuditService auditService;
+    @MockitoBean private ShoppingProfileService shoppingProfileService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -184,15 +190,17 @@ class GeminiChannel3FlowIntegrationTest {
                               "availability":"InStock","price":{"price":75.00,"currency":"USD"}}]}
                         ]}
                         """));
-        when(geminiService.rankShoppingCandidates(org.mockito.ArgumentMatchers.eq(message), any()))
+        when(geminiService.explainShoppingCandidates(org.mockito.ArgumentMatchers.eq(message), any(), any()))
                 .thenAnswer(invocation -> {
-                    java.util.List<GeminiRecommendationCandidate> supplied = invocation.getArgument(1);
+                    java.util.List<GeminiRecommendationCandidate> supplied = invocation.getArgument(2);
                     java.util.List<java.util.UUID> ids = supplied.reversed().stream()
-                            .map(GeminiRecommendationCandidate::candidateId)
-                            .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
-                    ids.add(0, java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
-                    return ids;
+                            .map(GeminiRecommendationCandidate::candidateId).toList();
+                    return new GeminiRecommendationResult(ids,
+                            java.util.Map.of(ids.getFirst(), "Brand B matches your coding use case."),
+                            "Laptop B is the closest match to your request.");
                 });
+        when(shoppingProfileService.getPreferences("owner-1"))
+                .thenReturn(ShoppingPreferencesResponse.empty());
 
         mockMvc.perform(post("/api/v1/shopping/search")
                         .with(authenticatedAsOwner())
@@ -208,7 +216,11 @@ class GeminiChannel3FlowIntegrationTest {
                 .andExpect(jsonPath("$.eligibleCandidates[0].merchantName").value("merchant-b.example"))
                 .andExpect(jsonPath("$.eligibleCandidates[0].price").value("75.00"))
                 .andExpect(jsonPath("$.eligibleCandidates[0].offerUrl")
-                        .value("https://merchant-b.example/b"));
+                        .value("https://merchant-b.example/b"))
+                .andExpect(jsonPath("$.eligibleCandidates[0].recommendationExplanation")
+                        .value("Brand B matches your coding use case."))
+                .andExpect(jsonPath("$.recommendation").value("Laptop B is the closest match to your request."))
+                .andExpect(jsonPath("$.comparisonSummary").value("Laptop B is the closest match to your request."));
     }
 
     private RequestPostProcessor authenticatedAsOwner() {

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.spendwise.checkout.service.CheckoutService;
+import com.spendwise.audit.service.AuditService;
 import com.spendwise.common.exception.ApiException;
 import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.payment.entity.PaymentTransaction;
@@ -45,13 +46,14 @@ class CheckoutCaptureSafetyTest {
     @Mock private SpendingPolicyRepository policyRepository;
     @Mock private ProductCandidateRepository candidateRepository;
     @Mock private PaymentTransactionRepository transactionRepository;
+    @Mock private AuditService auditService;
     @Mock private PlatformTransactionManager transactionManager;
     private CheckoutService service;
     private PaymentTransaction transaction;
 
     @BeforeEach
     void setUp() throws Exception {
-        when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         transaction = new PaymentTransaction(OWNER, "product-1", "Product", "shop.example",
                 "https://shop.example/product", new BigDecimal("50.00"), "USD", "idempotency-1",
                 UUID.randomUUID(), Instant.now().plusSeconds(300));
@@ -65,7 +67,8 @@ class CheckoutCaptureSafetyTest {
                 .thenReturn(Optional.of(transaction));
         lenient().when(transactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         service = new CheckoutService(channel3Client, new Channel3UserRateLimiter(), paymentGateway,
-                policyRepository, new PolicyEngine(), candidateRepository, transactionRepository, transactionManager);
+                policyRepository, new PolicyEngine(), candidateRepository, transactionRepository, transactionManager,
+                auditService);
     }
 
     @Test
@@ -79,6 +82,9 @@ class CheckoutCaptureSafetyTest {
 
         assertThat(transaction.getStatus()).isEqualTo("COMPLETED");
         assertThat(transaction.getPaypalCaptureId()).isEqualTo("capture-1");
+        verify(auditService).record(OWNER, "PAYMENT_CAPTURED", java.util.Map.of(
+                "checkoutId", ID, "previousStatus", "CAPTURING", "status", "COMPLETED",
+                "amount", "50.00", "currency", "USD"));
     }
 
     @Test
@@ -118,5 +124,31 @@ class CheckoutCaptureSafetyTest {
         assertThatThrownBy(() -> service.capture(OWNER, ID)).isInstanceOf(ApiException.class);
         assertThat(transaction.getStatus()).isEqualTo("CAPTURING");
         assertThat(transaction.getPaypalCaptureId()).isNull();
+    }
+
+    @Test
+    void recordsRefundOnlyAfterPayPalConfirmsTheMatchingCapture() {
+        transaction.syncProviderStatus("COMPLETED", "capture-1", Instant.parse("2026-11-08T10:00:00Z"));
+        when(transactionRepository.findByPaypalCaptureId("capture-1")).thenReturn(Optional.of(transaction));
+        when(paymentGateway.getCaptureStatus("capture-1")).thenReturn(new PaymentGateway.CaptureStatus(
+                "REFUNDED", "capture-1", ORDER, new BigDecimal("50.00"), "USD"));
+
+        service.reconcilePaypalCapture("capture-1", false);
+
+        assertThat(transaction.getStatus()).isEqualTo("REFUNDED");
+    }
+
+    @Test
+    void doesNotApplyRefundWhenPayPalCaptureDoesNotMatchTheStoredPayment() {
+        transaction.syncProviderStatus("COMPLETED", "capture-1", Instant.parse("2026-11-08T10:00:00Z"));
+        when(transactionRepository.findByPaypalCaptureId("capture-1")).thenReturn(Optional.of(transaction));
+        when(paymentGateway.getCaptureStatus("capture-1")).thenReturn(new PaymentGateway.CaptureStatus(
+                "REFUNDED", "different-capture", ORDER, new BigDecimal("50.00"), "USD"));
+
+        assertThatThrownBy(() -> service.reconcilePaypalCapture("capture-1", false))
+                .isInstanceOf(ApiException.class)
+                .extracting(exception -> ((ApiException) exception).getCode())
+                .isEqualTo("PAYMENT_STATUS_MISMATCH");
+        assertThat(transaction.getStatus()).isEqualTo("COMPLETED");
     }
 }

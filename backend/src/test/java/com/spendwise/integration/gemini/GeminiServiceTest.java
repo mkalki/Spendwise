@@ -2,6 +2,7 @@ package com.spendwise.integration.gemini;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.spendwise.common.exception.ApiException;
@@ -107,6 +108,31 @@ class GeminiServiceTest {
                 .isInstanceOf(ApiException.class)
                 .satisfies(error -> assertThat(((ApiException) error).getCode())
                         .isEqualTo("GEMINI_INVALID_RECOMMENDATIONS"));
+    }
+
+    @Test
+    void explainsOnlySuppliedProductsAndReturnsBoundedCandidateReasons() {
+        UUID candidateId = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        UUID inventedId = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        when(geminiClient.generateJson(org.mockito.ArgumentMatchers.contains("savedPreferences")))
+                .thenReturn(new GeminiResponse("gemini-3.8-flash", """
+                        {"summary":"Matches your request.","recommendations":[
+                          {"candidateId":"%s","explanation":"Matches your preferred brand and price."},
+                          {"candidateId":"%s","explanation":"Invented product."}]}
+                        """.formatted(candidateId, inventedId)));
+
+        var result = geminiService.explainShoppingCandidates("quiet laptop",
+                java.util.Map.of("preferredBrands", List.of("Acme")),
+                List.of(new GeminiRecommendationCandidate(candidateId, "Acme Quiet Laptop", "Acme",
+                        "shop.example", "45.00", "USD")));
+
+        assertThat(result.rankedCandidateIds()).containsExactly(candidateId);
+        assertThat(result.explanations()).containsOnlyKeys(candidateId);
+        assertThat(result.explanations().get(candidateId)).contains("preferred brand");
+        assertThat(result.summary()).isEqualTo("Matches your request.");
+        org.mockito.ArgumentCaptor<String> prompt = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(geminiClient).generateJson(prompt.capture());
+        assertThat(prompt.getValue()).contains("Acme Quiet Laptop", "shop.example", "45.00", "preferredBrands");
     }
 
     private void assertApiError(GeminiRequest request, String code, HttpStatus status) {

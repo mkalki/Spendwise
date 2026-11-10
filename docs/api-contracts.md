@@ -360,6 +360,44 @@ currency. `GET /api/payments/{orderId}` reconciles a lost or uncertain capture
 response. All three routes require the signed-in session, and state-changing
 requests require the CSRF token.
 
+### Saved PayPal account for repeat customers
+
+The backend can start PayPal's vault setup, persist a payment token after the
+customer approves it, charge with that token later, and revoke it when the
+customer removes it. The client never submits a vault token ID to choose the
+payment method; it refers to the Spendwise-owned method UUID instead.
+
+- `POST /api/payments/methods/paypal/setup` requires explicit opt-in with
+  `{ "consent": true }`, starts PayPal's approval flow, and returns
+  `{ "setupSessionId", "approvalUrl", "status" }`. The backend records the
+  consent timestamp and version with the owner-scoped setup record.
+- After PayPal returns the customer to the configured vault return URL, the
+  frontend calls `POST /api/payments/methods/paypal/setup/{setupSessionId}/complete`.
+  The backend exchanges the pending setup token for a payment token and stores
+  that token encrypted for the signed-in owner.
+- `GET /api/payments/methods` lists the owner's saved methods without returning
+  any PayPal token.
+- `DELETE /api/payments/methods/{methodId}` deletes the token from PayPal and
+  marks the method removed locally.
+- `POST /api/payments/methods/{methodId}/checkout` refreshes the selected offer,
+  applies policy and budget checks, reserves the amount, then creates an order
+  using the saved token. When PayPal captures immediately, the backend verifies
+  the capture amount and currency before recording it. If PayPal requires more
+  buyer approval, the response contains an `approvalUrl` and the normal approval
+  flow must be used.
+
+Configure `PAYPAL_VAULT_ENCRYPTION_KEY` as Base64 for a private 32-byte key.
+The vault token is stored with AES-GCM encryption; this key must remain stable
+across restarts and must be protected like `PAYPAL_CLIENT_SECRET`. Set
+`PAYPAL_VAULT_RETURN_URL` and `PAYPAL_VAULT_CANCEL_URL` to frontend routes that
+will complete or abandon the setup flow. PayPal vaulting must be enabled for
+the app, and the merchant account must have PayPal approval for reference
+transactions before saved-wallet charges can work. PayPal may still require
+buyer approval for a particular payment. The frontend must obtain explicit
+consent before starting setup, handle return/cancel, send the CSRF token on
+state-changing calls, and collect PayPal's required risk data for customer-
+initiated vaulted payments.
+
 `POST /api/v1/checkout-sessions` requires an `Idempotency-Key` header and a
 candidate from the signed-in user's search session:
 

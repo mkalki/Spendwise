@@ -6,6 +6,11 @@ public interface PaymentGateway {
 
     OrderCreation createOrder(Long transactionId, BigDecimal amount, String currencyCode);
 
+    default VaultOrderCreation createOrderWithVault(
+            Long transactionId, BigDecimal amount, String currencyCode, String vaultId, String clientMetadataId) {
+        throw new PaymentProviderNotConfiguredException();
+    }
+
     CaptureResult captureOrder(Long transactionId, String paypalOrderId);
 
     boolean canCancelOrder(String paypalOrderId);
@@ -16,6 +21,8 @@ public interface PaymentGateway {
 
     record OrderCreation(String orderId, String approvalUrl) {
     }
+
+    record VaultOrderCreation(String orderId, String approvalUrl, CaptureResult capture) { }
 
     record CaptureResult(
             boolean completed,

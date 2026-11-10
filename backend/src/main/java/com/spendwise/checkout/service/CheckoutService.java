@@ -162,6 +162,116 @@ public class CheckoutService {
         return CheckoutResponse.from(updated);
     }
 
+    public CheckoutResponse createWithSavedPayPal(
+            String ownerId,
+            String idempotencyKey,
+            java.util.UUID searchSessionId,
+            java.util.UUID candidateId,
+            String vaultId,
+            String clientMetadataId) {
+        ProductCandidate candidate = candidateRepository.findOwnedById(candidateId, ownerId)
+                .filter(item -> searchSessionId.equals(item.getSearchSession().getId()))
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND, "CANDIDATE_NOT_FOUND", "The selected product candidate was not found."));
+        PaymentTransaction existing = transactionRepository.findByOwnerIdAndIdempotencyKey(ownerId, idempotencyKey)
+                .orElse(null);
+        if (existing != null) {
+            if (!candidateId.equals(existing.getCandidateId())) {
+                throw conflict("IDEMPOTENCY_KEY_REUSED", "The idempotency key was already used for another product.");
+            }
+            if ("EXPIRED".equals(existing.getStatus())) throw checkoutExpired();
+            if ("APPROVED".equals(existing.getStatus()) || "COMPLETED".equals(existing.getStatus())) {
+                return CheckoutResponse.from(existing);
+            }
+            if ("REQUIRES_RECONCILIATION".equals(existing.getStatus())) {
+                if (existing.getPaypalOrderId() != null) {
+                    return CheckoutResponse.from(getPaymentByPaypalOrderId(ownerId, existing.getPaypalOrderId()));
+                }
+            } else {
+                throw conflict("CHECKOUT_IN_PROGRESS", "A checkout using this idempotency key is already in progress.");
+            }
+        }
+        if (!candidate.isEligible()) {
+            throw conflict("PRODUCT_NOT_ELIGIBLE", "The selected product did not pass policy checks.");
+        }
+        SpendingPolicy policy = policyRepository.findByOwnerId(ownerId)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND, "POLICY_NOT_FOUND", "No spending policy has been configured."));
+        PaymentTransaction reserved;
+        if (existing != null && "REQUIRES_RECONCILIATION".equals(existing.getStatus())
+                && existing.getPaypalOrderId() == null) {
+            reserved = existing;
+        } else {
+            RefreshedOffer refreshed = refreshOffer(ownerId, candidate, policy);
+            reserved = reserve(ownerId, candidate, refreshed, idempotencyKey);
+        }
+
+        PaymentGateway.VaultOrderCreation order;
+        try {
+            order = paymentGateway.createOrderWithVault(reserved.getId(), reserved.getAmount(),
+                    reserved.getCurrencyCode(), vaultId, clientMetadataId);
+        } catch (PaymentProviderNotConfiguredException exception) {
+            updateStatus(ownerId, reserved.getId(), PaymentTransaction::markFailed);
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "PAYMENT_PROVIDER_NOT_CONFIGURED",
+                    "Saved PayPal checkout is unavailable because PayPal is not configured.");
+        } catch (PaymentProviderTimeoutException exception) {
+            updateStatus(ownerId, reserved.getId(), PaymentTransaction::markRequiresReconciliation);
+            throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "PAYMENT_PROVIDER_TIMEOUT",
+                    "PayPal did not confirm the saved-payment order. The reservation is held for reconciliation.");
+        } catch (PaymentProviderRejectedException exception) {
+            updateStatus(ownerId, reserved.getId(), PaymentTransaction::markFailed);
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "SAVED_PAYMENT_REJECTED",
+                    "PayPal rejected the saved payment. Use the standard approval flow or another payment method.");
+        } catch (PaymentProviderException exception) {
+            updateStatus(ownerId, reserved.getId(), PaymentTransaction::markRequiresReconciliation);
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_ORDER_UNCONFIRMED",
+                    "PayPal did not confirm the saved-payment order. The reservation remains held.");
+        }
+
+        if (order == null) {
+            updateStatus(ownerId, reserved.getId(), PaymentTransaction::markRequiresReconciliation);
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_ORDER_UNCONFIRMED",
+                    "PayPal did not return a confirmed saved-payment order.");
+        }
+        PaymentGateway.CaptureResult capture = order.capture();
+        if (capture != null && (!capture.completed() || capture.captureId() == null
+                || capture.amount() == null || capture.amount().compareTo(reserved.getAmount()) != 0
+                || !reserved.getCurrencyCode().equals(capture.currencyCode()))) {
+            updateStatus(ownerId, reserved.getId(), PaymentTransaction::markRequiresReconciliation);
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_STATUS_MISMATCH",
+                    "PayPal's saved-payment result did not match the reserved amount and currency.");
+        }
+        PaymentTransaction updated = transactions.execute(status -> {
+            PaymentTransaction current = findForUpdate(ownerId, reserved.getId());
+            if (!"CREATED".equals(current.getStatus())
+                    && !"REQUIRES_RECONCILIATION".equals(current.getStatus())) {
+                current.markRequiresReconciliation();
+                return transactionRepository.save(current);
+            }
+            current.paypalOrderCreated(order.orderId(), order.approvalUrl());
+            if (capture != null) current.markCompleted(capture.captureId(), Instant.now());
+            PaymentTransaction saved = transactionRepository.save(current);
+            auditService.record(ownerId, "PAYPAL_ORDER_CREATED", java.util.Map.of(
+                    "checkoutId", saved.getId(), "paypalOrderId", order.orderId(), "savedPayment", true));
+            if (capture != null) {
+                auditService.record(ownerId, "PAYMENT_CAPTURED", java.util.Map.of(
+                        "checkoutId", saved.getId(), "captureId", capture.captureId(),
+                        "amount", saved.getAmount().toPlainString(), "currency", saved.getCurrencyCode()));
+            }
+            return saved;
+        });
+        if (updated == null || (!"APPROVED".equals(updated.getStatus()) && !"COMPLETED".equals(updated.getStatus()))) {
+            throw new ApiException(HttpStatus.CONFLICT, "CHECKOUT_REQUIRES_RECONCILIATION",
+                    "The PayPal payment exists, but checkout state needs reconciliation.");
+        }
+        if (capture == null && order.approvalUrl() == null) {
+            updateStatus(ownerId, reserved.getId(), PaymentTransaction::markRequiresReconciliation);
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "SAVED_PAYMENT_ACTION_REQUIRED",
+                    "PayPal requires additional approval for this payment. Retry with the standard PayPal approval flow.");
+        }
+        return CheckoutResponse.from(updated);
+    }
+
     public CheckoutResponse capture(String ownerId, Long checkoutId) {
         CaptureStart start = transactions.execute(status -> {
             PaymentTransaction transaction = findForUpdate(ownerId, checkoutId);

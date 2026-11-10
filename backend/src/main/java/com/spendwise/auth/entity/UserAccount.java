@@ -35,6 +35,9 @@ public class UserAccount {
     @Column(name = "google_subject", length = 120, unique = true)
     private String googleSubject;
 
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 16, nullable = false)
     private Provider provider;
@@ -53,7 +56,8 @@ public class UserAccount {
             String displayName,
             String pictureUrl,
             String googleSubject,
-            Provider provider) {
+            Provider provider,
+            boolean emailVerified) {
         this.id = id;
         this.email = email;
         this.username = username;
@@ -62,23 +66,29 @@ public class UserAccount {
         this.pictureUrl = pictureUrl;
         this.googleSubject = googleSubject;
         this.provider = provider;
+        this.emailVerified = emailVerified;
     }
 
     public static UserAccount passwordAccount(
             String id, String email, String username, String passwordHash) {
-        return new UserAccount(id, email, username, passwordHash, username, null, null, Provider.PASSWORD);
+        return new UserAccount(id, email, username, passwordHash, username, null, null, Provider.PASSWORD, false);
     }
 
     public static UserAccount googleAccount(
             String subject, String email, String displayName, String pictureUrl) {
         return new UserAccount(
-                subject, email, null, null, displayName, pictureUrl, subject, Provider.GOOGLE);
+                subject, email, null, null, displayName, pictureUrl, subject, Provider.GOOGLE, true);
     }
 
     public void updateGoogleProfile(String email, String displayName, String pictureUrl) {
         this.email = email;
         this.displayName = displayName;
         this.pictureUrl = pictureUrl;
+        this.emailVerified = true;
+    }
+
+    public void verifyEmail() {
+        this.emailVerified = true;
     }
 
     @PrePersist
@@ -96,6 +106,7 @@ public class UserAccount {
     public String getPictureUrl() { return pictureUrl; }
     public String getGoogleSubject() { return googleSubject; }
     public Provider getProvider() { return provider; }
+    public boolean isEmailVerified() { return emailVerified; }
 
     public enum Provider {
         PASSWORD,

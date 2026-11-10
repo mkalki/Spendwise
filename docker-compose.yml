@@ -41,6 +41,8 @@ services:
 
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
       AUTH_SUCCESS_URL: ${AUTH_SUCCESS_URL:-http://localhost:5173/}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
 
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-local-google-client-id}

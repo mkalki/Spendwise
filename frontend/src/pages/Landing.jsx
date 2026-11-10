@@ -11,7 +11,7 @@ const objects = [
 ];
 
 export default function Landing({ onAuthenticated }) {
-  const [auth, setAuth] = useState(false);
+  const [auth, setAuth] = useState(() => new URLSearchParams(window.location.search).get('auth') === 'login');
   const [paused, setPaused] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [immersive, setImmersive] = useState(false);
   const [chapter, setChapter] = useState(0);

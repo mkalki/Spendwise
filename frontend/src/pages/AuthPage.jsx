@@ -9,6 +9,9 @@ export default function AuthPage({ onAuthenticated }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [resendMessage, setResendMessage] = useState("");
+  const [resending, setResending] = useState(false);
   const isLogin = mode === "login";
 
   function change(event) {
@@ -30,14 +33,33 @@ export default function AuthPage({ onAuthenticated }) {
     setError("");
     setSaving(true);
     try {
-      const user = isLogin
-        ? await api.login(form.identifier, form.password)
-        : await api.signup(form.email, form.username, form.password);
-      onAuthenticated(user);
+      if (isLogin) {
+        const user = await api.login(form.identifier, form.password);
+        onAuthenticated(user);
+      } else {
+        const result = await api.signup(form.email, form.username, form.password);
+        setVerificationEmail(result.email || form.email);
+        setResendMessage("");
+      }
     } catch (failure) {
-      setError(failure.message || "Authentication failed.");
+      setError(failure.code === "EMAIL_NOT_VERIFIED"
+        ? "Verify your email address before signing in. You can request a new verification email."
+        : failure.message || "Authentication failed.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function resendVerification() {
+    setResending(true);
+    setResendMessage("");
+    try {
+      const result = await api.resendVerificationEmail(verificationEmail);
+      setResendMessage(result.message);
+    } catch (failure) {
+      setResendMessage(failure.message || "Could not request another verification email.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -54,6 +76,21 @@ export default function AuthPage({ onAuthenticated }) {
         </ul>
       </aside>
       <section className="auth-form-area" aria-labelledby="auth-title">
+        {verificationEmail ? (
+          <div className="auth-verification-notice" aria-live="polite">
+            <ShieldCheck size={30} />
+            <h3 id="auth-title">Check your email</h3>
+            <p>We sent a verification link to <strong>{verificationEmail}</strong>. Verify it before signing in.</p>
+            <button className="save-button" type="button" disabled={resending} onClick={resendVerification}>
+              {resending ? "Sending…" : "Resend verification email"}
+            </button>
+            {resendMessage && <p role="status">{resendMessage}</p>}
+            <button className="text-button" type="button" onClick={() => {
+              setVerificationEmail("");
+              switchMode("login");
+            }}>Return to sign in</button>
+          </div>
+        ) : <>
         <div className="auth-mode" role="group" aria-label="Account access">
           <button type="button" aria-pressed={isLogin} disabled={saving} onClick={() => switchMode("login")}>Sign in</button>
           <button type="button" aria-pressed={!isLogin} disabled={saving} onClick={() => switchMode("signup")}>Register</button>
@@ -104,6 +141,7 @@ export default function AuthPage({ onAuthenticated }) {
             {saving ? "Working…" : isLogin ? "Sign in" : "Create account"} <ArrowRight size={16} />
           </button>
         </form>
+        </>}
       </section>
     </div>
   );

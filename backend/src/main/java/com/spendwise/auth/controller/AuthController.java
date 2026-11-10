@@ -1,9 +1,13 @@
 package com.spendwise.auth.controller;
 
 import com.spendwise.auth.dto.AuthResponse;
+import com.spendwise.auth.dto.AuthMessageResponse;
+import com.spendwise.auth.dto.EmailVerificationRequest;
 import com.spendwise.auth.dto.LoginRequest;
+import com.spendwise.auth.dto.ResendVerificationRequest;
 import com.spendwise.auth.dto.SignupRequest;
-import com.spendwise.auth.entity.UserAccount;
+import com.spendwise.auth.dto.SignupResponse;
+import com.spendwise.auth.integration.EmailDeliveryException;
 import com.spendwise.auth.service.AccountService;
 import com.spendwise.auth.service.SessionAuthenticationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -45,16 +49,29 @@ public class AuthController {
     }
 
     @PostMapping("/signup")
-    @Operation(summary = "Create a password account", description = "Creates the account and starts an authenticated session.")
-    public ResponseEntity<AuthResponse> signup(
-            @Valid @RequestBody SignupRequest request,
-            HttpServletRequest servletRequest,
-            HttpServletResponse servletResponse) {
-        UserAccount account = accountService.signUp(request);
-        Authentication authentication = sessionAuthenticationService.authenticate(
-                account.getEmail(), request.password(), servletRequest, servletResponse);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(accountService.profile(authentication.getName()));
+    @Operation(summary = "Create a password account", description = "Creates an unverified account and emails a verification link.")
+    public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(accountService.signUp(request));
+    }
+
+    @PostMapping("/verify-email")
+    @Operation(summary = "Verify an email address using its one-time link token")
+    public AuthMessageResponse verifyEmail(@Valid @RequestBody EmailVerificationRequest request) {
+        accountService.verifyEmail(request.token());
+        return new AuthMessageResponse("Email verified. You can now sign in.");
+    }
+
+    @PostMapping("/verification/resend")
+    @Operation(summary = "Request a verification email")
+    public ResponseEntity<AuthMessageResponse> resendVerificationEmail(
+            @Valid @RequestBody ResendVerificationRequest request) {
+        try {
+            accountService.resendVerificationEmail(request.email());
+        } catch (EmailDeliveryException ignored) {
+            // Keep the response identical for unknown, verified, and pending email addresses.
+        }
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new AuthMessageResponse(
+                "If an unverified account exists for that address, a verification email will be sent."));
     }
 
     @PostMapping("/login")

@@ -39,6 +39,9 @@ public class SessionAuthenticationService {
         try {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(identifier, password));
+        } catch (EmailNotVerifiedAuthenticationException exception) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "EMAIL_NOT_VERIFIED",
+                    "Verify your email address before signing in. You can request a new verification email.");
         } catch (BadCredentialsException exception) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Email/username or password is incorrect.");
         }

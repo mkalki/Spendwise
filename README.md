@@ -48,11 +48,15 @@ OAuth access tokens in browser storage.
 
 ### Password accounts
 
-`POST /api/auth/signup` accepts `email`, `username`, and `password`, creates the
-account, and starts a session. `POST /api/auth/login` accepts `identifier` (email
-or username) and `password`. Fetch `GET /api/auth/csrf` first and send its token
-in `X-XSRF-TOKEN` with signup/login/logout requests. Passwords are stored as
-PBKDF2 hashes. Google login and signup are available at
+`POST /api/auth/signup` accepts `email`, `username`, and `password`, creates an
+unverified account, and emails a one-time verification link. The account can
+sign in only after the link is used. Configure `RESEND_API_KEY` and
+`RESEND_FROM_EMAIL` in `.env`; the sender address must be verified with Resend.
+Set `FRONTEND_ORIGIN` to the URL that should receive the verification link.
+`POST /api/auth/login` accepts `identifier` (email or username) and `password`.
+Fetch `GET /api/auth/csrf` first and send its token in `X-XSRF-TOKEN` with
+signup/login/verification requests. Passwords are stored as PBKDF2 hashes.
+Google login and signup are available at
 `/api/auth/google/login` and `/api/auth/google/signup`; first Google sign-in
 creates the account when its verified email is unused.
 

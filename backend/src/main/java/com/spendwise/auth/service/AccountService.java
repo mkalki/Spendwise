@@ -1,6 +1,7 @@
 package com.spendwise.auth.service;
 
 import com.spendwise.auth.dto.AuthResponse;
+import com.spendwise.auth.dto.SignupResponse;
 import com.spendwise.auth.dto.SignupRequest;
 import com.spendwise.auth.entity.UserAccount;
 import com.spendwise.auth.repository.UserAccountRepository;
@@ -18,14 +19,19 @@ public class AccountService {
 
     private final UserAccountRepository repository;
     private final PasswordEncoder passwordEncoder;
+    private final EmailVerificationService emailVerificationService;
 
-    public AccountService(UserAccountRepository repository, PasswordEncoder passwordEncoder) {
+    public AccountService(
+            UserAccountRepository repository,
+            PasswordEncoder passwordEncoder,
+            EmailVerificationService emailVerificationService) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
+        this.emailVerificationService = emailVerificationService;
     }
 
     @Transactional
-    public UserAccount signUp(SignupRequest request) {
+    public SignupResponse signUp(SignupRequest request) {
         String email = normalize(request.email());
         String username = normalize(request.username());
 
@@ -36,12 +42,26 @@ public class AccountService {
             throw accountConflict("USERNAME_ALREADY_TAKEN", "This username is already taken.");
         }
 
-        UserAccount account = UserAccount.passwordAccount(
+        UserAccount account = repository.saveAndFlush(UserAccount.passwordAccount(
                 UUID.randomUUID().toString(),
                 email,
                 username,
-                passwordEncoder.encode(request.password()));
-        return repository.saveAndFlush(account);
+                passwordEncoder.encode(request.password())));
+        emailVerificationService.issueAndSend(account);
+        return new SignupResponse(email, "Check your inbox for a verification link before signing in.");
+    }
+
+    @Transactional
+    public void verifyEmail(String token) {
+        emailVerificationService.verify(token);
+    }
+
+    @Transactional
+    public void resendVerificationEmail(String email) {
+        repository.findByEmailIgnoreCase(normalize(email))
+                .filter(account -> account.getProvider() == UserAccount.Provider.PASSWORD)
+                .filter(account -> !account.isEmailVerified())
+                .ifPresent(emailVerificationService::resendIfAllowed);
     }
 
     @Transactional

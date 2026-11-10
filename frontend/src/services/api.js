@@ -2,13 +2,33 @@
 const API_BASE_URL = "/api";
 
 let csrfToken;
-let checkoutAttempt;
+const checkoutAttemptStorage = "spendwise_checkout_attempts";
+const pendingCheckouts = new Map();
+
+function readCheckoutAttempts() {
+  return JSON.parse(sessionStorage.getItem(checkoutAttemptStorage) ?? "{}");
+}
+
+function saveCheckoutAttempts(attempts) {
+  sessionStorage.setItem(checkoutAttemptStorage, JSON.stringify(attempts));
+}
+
+function clearSettledCheckout(checkout) {
+  if (!["CAPTURED", "CANCELLED"].includes(checkout?.status)) return;
+  const attempts = readCheckoutAttempts();
+  const body = Object.keys(attempts).find((body) => attempts[body].checkoutId === checkout.checkoutSessionId);
+  if (body !== undefined) {
+    delete attempts[body];
+    saveCheckoutAttempts(attempts);
+  }
+}
 
 const unresolvedCheckoutCodes = new Set([
   "CHECKOUT_IN_PROGRESS",
   "CHECKOUT_REQUIRES_RECONCILIATION",
   "IDEMPOTENCY_KEY_REUSED",
 ]);
+const retryableCheckoutStatuses = new Set([401, 403, 408, 425, 429]);
 
 async function request(path, options = {}) {
   const method = options.method ?? "GET";
@@ -179,55 +199,68 @@ export const api = {
 
   async createCheckout(searchSessionId, candidateId) {
     const body = JSON.stringify({ searchSessionId, candidateId });
-    if (checkoutAttempt?.body !== body) {
-      checkoutAttempt = {
-        body,
+    if (pendingCheckouts.has(body)) return pendingCheckouts.get(body);
+
+    const attempts = readCheckoutAttempts();
+    if (!attempts[body]) {
+      attempts[body] = {
         key: Array.from(crypto.getRandomValues(new Uint8Array(16)),
           (byte) => byte.toString(16).padStart(2, "0")).join(""),
       };
+      // Save before sending so a reload or a lost response can replay the order request.
+      saveCheckoutAttempts(attempts);
     }
-    const attempt = checkoutAttempt;
-    attempt.pending ??= request("/v1/checkout-sessions", {
+    const { key } = attempts[body];
+    const pending = request("/v1/checkout-sessions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Idempotency-Key": attempt.key,
+        "Idempotency-Key": key,
       },
       body,
     }).then((checkout) => {
       if (!checkout?.approvalUrl || !checkout.checkoutSessionId) {
         throw new Error("Checkout did not return a PayPal approval URL and session ID. Try again.");
       }
-      if (checkoutAttempt === attempt) checkoutAttempt = undefined;
+      const current = readCheckoutAttempts();
+      if (current[body]?.key === key) {
+        current[body].checkoutId = checkout.checkoutSessionId;
+        saveCheckoutAttempts(current);
+      }
       return checkout;
     }).catch((error) => {
       const { status, code } = error;
-      const unresolved = status === 408 || status === 425 || status === 429
+      const unresolved = retryableCheckoutStatuses.has(status)
         || (status === 409 && unresolvedCheckoutCodes.has(code));
-      if (checkoutAttempt === attempt && status >= 400 && status < 500 && !unresolved) {
-        checkoutAttempt = undefined;
+      if (status >= 400 && status < 500 && !unresolved) {
+        const current = readCheckoutAttempts();
+        if (current[body]?.key === key) {
+          delete current[body];
+          saveCheckoutAttempts(current);
+        }
       }
       throw error;
     }).finally(() => {
-      attempt.pending = undefined;
+      pendingCheckouts.delete(body);
     });
-    return attempt.pending;
-  },
-
-  abandonCheckoutAttempt() {
-    checkoutAttempt = undefined;
+    pendingCheckouts.set(body, pending);
+    return pending;
   },
 
   async captureCheckout(checkoutSessionId) {
-    return request(`/v1/checkout-sessions/${checkoutSessionId}/capture`, {
+    const checkout = await request(`/v1/checkout-sessions/${checkoutSessionId}/capture`, {
       method: "POST",
     });
+    clearSettledCheckout(checkout);
+    return checkout;
   },
 
   async cancelCheckout(checkoutSessionId) {
-    return request(`/v1/checkout-sessions/${checkoutSessionId}/cancel`, {
+    const checkout = await request(`/v1/checkout-sessions/${checkoutSessionId}/cancel`, {
       method: "POST",
     });
+    clearSettledCheckout(checkout);
+    return checkout;
   },
 
 };

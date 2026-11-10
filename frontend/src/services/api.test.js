@@ -10,16 +10,27 @@ function approvedCheckout() {
 }
 
 function mockCheckout(t, ...responses) {
-  api.abandonCheckoutAttempt();
+  const storage = new Map();
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+    },
+  });
+  t.after(() => { delete globalThis.sessionStorage; });
   const requests = [];
   t.mock.method(globalThis, "fetch", async (url, options) => {
     if (url === "/api/auth/csrf") return Response.json({ token: "test-token" });
-    assert.equal(url, "/api/v1/checkout-sessions");
-    requests.push({
-      key: options.headers["Idempotency-Key"],
-      body: JSON.parse(options.body),
-    });
-    assert.ok(requests.at(-1).key);
+    if (url === "/api/v1/checkout-sessions") {
+      requests.push({
+        key: options.headers["Idempotency-Key"],
+        body: JSON.parse(options.body),
+      });
+      assert.ok(requests.at(-1).key);
+    } else {
+      assert.match(url, /^\/api\/v1\/checkout-sessions\/101\/(capture|cancel)$/);
+    }
     assert.ok(responses.length > 0, "Unexpected checkout request");
     const next = responses.shift();
     return typeof next === "function" ? next() : next;
@@ -56,13 +67,19 @@ test("a network error or lost response body keeps the key for retry", async (t) 
   assert.equal(new Set(requests.map(({ key }) => key)).size, 1);
 });
 
-test("a successful checkout clears the key for the next attempt", async (t) => {
-  const requests = mockCheckout(t, approvedCheckout(), approvedCheckout());
+test("a confirmed capture or cancellation clears the key for the next attempt", async (t) => {
+  const requests = mockCheckout(t,
+    approvedCheckout(), Response.json({ checkoutSessionId: "101", status: "CAPTURED" }),
+    approvedCheckout(), Response.json({ checkoutSessionId: "101", status: "CANCELLED" }),
+    approvedCheckout());
 
   await createCheckout();
+  await api.captureCheckout("101");
+  await createCheckout();
+  await api.cancelCheckout("101");
   await createCheckout();
 
-  assert.notEqual(requests[0].key, requests[1].key);
+  assert.equal(new Set(requests.map(({ key }) => key)).size, 3);
 });
 
 test("a definitive 4xx clears the key for the next attempt", async (t) => {
@@ -76,19 +93,20 @@ test("a definitive 4xx clears the key for the next attempt", async (t) => {
 });
 
 test("unresolved 4xx responses and incomplete success responses keep the key", async (t) => {
-  const requests = mockCheckout(t, new Response(null, { status: 408 }), new Response(null, { status: 429 }),
+  const requests = mockCheckout(t, new Response(null, { status: 401 }), new Response(null, { status: 403 }),
+    new Response(null, { status: 408 }), new Response(null, { status: 429 }),
     Response.json({ code: "CHECKOUT_IN_PROGRESS" }, { status: 409 }),
     Response.json({ code: "CHECKOUT_REQUIRES_RECONCILIATION" }, { status: 409 }),
     Response.json({ code: "IDEMPOTENCY_KEY_REUSED" }, { status: 409 }),
     Response.json({ checkoutSessionId: "101" }), approvedCheckout());
 
-  for (const status of [408, 429, 409, 409, 409]) {
+  for (const status of [401, 403, 408, 429, 409, 409, 409]) {
     await assert.rejects(createCheckout, { status });
   }
   await assert.rejects(createCheckout, /approval URL/);
   await createCheckout();
 
-  assert.equal(requests.length, 7);
+  assert.equal(requests.length, 9);
   assert.equal(new Set(requests.map(({ key }) => key)).size, 1);
 });
 
@@ -117,18 +135,35 @@ test("concurrent submissions for the same payload share one request", async (t) 
   assert.equal(checkouts[0], checkouts[1]);
 });
 
-test("abandoning an attempt clears the key and a late success cannot clear the new attempt", async (t) => {
+test("switching offers preserves an in-flight attempt and its key after a late success", async (t) => {
   const response = Promise.withResolvers();
-  const requests = mockCheckout(t, () => response.promise,
-    new Response(null, { status: 504 }), approvedCheckout());
+  const requests = mockCheckout(t, () => response.promise, approvedCheckout(), approvedCheckout());
 
-  const abandoned = createCheckout();
-  api.abandonCheckoutAttempt();
-  await assert.rejects(createCheckout, { status: 504 });
+  const original = createCheckout();
+  await api.createCheckout("search-1", "candidate-2");
   response.resolve(approvedCheckout());
-  await abandoned;
+  await original;
   await createCheckout();
 
   assert.notEqual(requests[0].key, requests[1].key);
-  assert.equal(requests[1].key, requests[2].key);
+  assert.equal(requests[0].key, requests[2].key);
+});
+
+test("reloading while checkout is in flight reuses the key even if the first response is lost", async (t) => {
+  const sent = Promise.withResolvers();
+  const response = Promise.withResolvers();
+  const requests = mockCheckout(t, () => {
+    sent.resolve();
+    return response.promise;
+  }, approvedCheckout());
+
+  const first = assert.rejects(createCheckout, /Response lost/);
+  await sent.promise;
+  const { api: reloadedApi } = await import("./api.js?reload");
+  await reloadedApi.createCheckout("search-1", "candidate-1");
+  response.reject(new TypeError("Response lost"));
+  await first;
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].key, requests[1].key);
 });

@@ -51,7 +51,6 @@ function CheckoutForm({ item, saved, onSaved }) {
     checkoutScope.current = scope;
     return () => {
       scope.active = false;
-      api.abandonCheckoutAttempt();
     };
   }, [searchSessionId, candidateId]);
 

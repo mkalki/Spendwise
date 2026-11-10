@@ -336,6 +336,30 @@ v2 (`POST /v2/checkout/orders`, `GET /v2/checkout/orders/{id}`, and
 PayPal credentials must be provided through `PAYPAL_CLIENT_ID` and
 `PAYPAL_CLIENT_SECRET`; never put them in request bodies or frontend code.
 
+For PayPal JavaScript SDK v6 checkout, the authenticated frontend can retrieve
+the public SDK configuration with `GET /api/payments/config`:
+
+```json
+{
+  "clientId": "sandbox-public-client-id",
+  "configured": true
+}
+```
+
+`clientId` is the public PayPal application ID and is safe for the browser SDK.
+The backend never returns `PAYPAL_CLIENT_SECRET`. When no client ID is
+configured, `clientId` is `null` and `configured` is `false`.
+
+The browser creates the PayPal approval session with the SDK. It requests an
+order from `POST /api/payments/create` using the authenticated search session,
+candidate ID, and an `Idempotency-Key`. The response includes `orderId` for the
+PayPal SDK and `checkoutSessionId` for Spendwise's own record. After buyer
+approval, the browser calls `POST /api/payments/{orderId}/capture`; the backend
+captures with PayPal and verifies the result against the reserved amount and
+currency. `GET /api/payments/{orderId}` reconciles a lost or uncertain capture
+response. All three routes require the signed-in session, and state-changing
+requests require the CSRF token.
+
 `POST /api/v1/checkout-sessions` requires an `Idempotency-Key` header and a
 candidate from the signed-in user's search session:
 

@@ -4,12 +4,15 @@ import com.spendwise.checkout.dto.CheckoutResponse;
 import com.spendwise.checkout.service.CheckoutService;
 import com.spendwise.payment.dto.CapturePaymentResponse;
 import com.spendwise.payment.dto.CreatePaymentRequest;
+import com.spendwise.payment.dto.PayPalSdkConfigResponse;
 import com.spendwise.payment.dto.PaymentResponse;
 import com.spendwise.payment.entity.PaymentTransaction;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,9 +28,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class PaymentController {
 
     private final CheckoutService checkoutService;
+    private final String paypalClientId;
 
-    public PaymentController(CheckoutService checkoutService) {
+    public PaymentController(
+            CheckoutService checkoutService,
+            @Value("${spendwise.paypal.client-id:}") String paypalClientId) {
         this.checkoutService = checkoutService;
+        this.paypalClientId = paypalClientId;
+    }
+
+    @GetMapping("/config")
+    public PayPalSdkConfigResponse config() {
+        return new PayPalSdkConfigResponse(
+                StringUtils.hasText(paypalClientId) ? paypalClientId : null,
+                StringUtils.hasText(paypalClientId));
     }
 
     @PostMapping("/create")

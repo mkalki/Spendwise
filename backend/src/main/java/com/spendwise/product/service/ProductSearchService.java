@@ -88,7 +88,17 @@ public class ProductSearchService {
         ShoppingPreferencesResponse savedPreferences = profileService.getPreferences(ownerId);
         if (savedPreferences == null) savedPreferences = ShoppingPreferencesResponse.empty();
         ShoppingIntentService.ParsedIntent literalIntent = intentService.parse(request.message());
-        GeminiShoppingIntent aiIntent = geminiService.extractShoppingIntent(request.message());
+        GeminiShoppingIntent aiIntent;
+        boolean keywordFallback = false;
+        try {
+            aiIntent = geminiService.extractShoppingIntent(request.message());
+        } catch (ApiException exception) {
+            if (!"GEMINI_INVALID_API_KEY".equals(exception.getCode()) || literalIntent.keywords().isBlank()) {
+                throw exception;
+            }
+            aiIntent = new GeminiShoppingIntent(literalIntent.keywords(), null, null, null, null, List.of());
+            keywordFallback = true;
+        }
         validateBudgetCurrency(literalIntent.requestedCurrency(), policy.getCurrencyCode());
         validateBudgetCurrency(aiIntent.budgetCurrency(), policy.getCurrencyCode());
         ShoppingSearchFilters filters = request.filters();
@@ -148,7 +158,7 @@ public class ProductSearchService {
         List<ProductCandidate> eligibleCandidates = candidates.stream()
                 .filter(ProductCandidate::isEligible)
                 .toList();
-        CandidateRanking ranking = eligibleCandidates.isEmpty()
+        CandidateRanking ranking = keywordFallback || eligibleCandidates.isEmpty()
                 ? CandidateRanking.unavailable(eligibleCandidates)
                 : explainEligibleCandidates(request.message(), savedPreferences, eligibleCandidates);
         boolean aiRankingApplied = false;
@@ -195,6 +205,11 @@ public class ProductSearchService {
             case LOWEST_PRICE -> "Lowest-priced eligible offer: " + eligible.getFirst().productTitle()
                     + " from " + eligible.getFirst().merchantName() + ".";
         };
+        if (keywordFallback) {
+            String notice = "Gemini rejected the configured API key. Used Channel3 keyword search with your spending rules.";
+            recommendation = recommendation == null || request.sortBy() == ShoppingSortBy.AI_RECOMMENDED
+                    ? notice : notice + " " + recommendation;
+        }
 
         return new ShoppingSearchResponse(
                 sessionId,

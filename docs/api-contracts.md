@@ -161,6 +161,11 @@ use the active policy currency. Price and other explicit filters are sent to
 Channel3; the minimum price is also enforced on returned offers. A request
 budget currency that conflicts with the active policy is rejected.
 
+If Google explicitly rejects the configured Gemini key, the backend searches
+Channel3 using the parsed keywords. It applies the literal budget, explicit
+filters, and policy checks, skips Gemini ranking, and reports the fallback in
+`recommendation`.
+
 On every search, the backend loads the signed-in customer's saved preferences.
 A saved `maxPrice` is combined with the request budget and spending-policy cap
 using the strictest applicable amount (only when its currency matches the

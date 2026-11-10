@@ -69,6 +69,10 @@ public class GeminiService {
             throw new ApiException(HttpStatus.GATEWAY_TIMEOUT,
                     "GEMINI_TIMEOUT", "Gemini did not respond in time. Please try again.");
         } catch (GeminiProviderException exception) {
+            if (exception.isInvalidApiKey()) {
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "GEMINI_INVALID_API_KEY", "Gemini rejected the configured API key.");
+            }
             throw new ApiException(HttpStatus.BAD_GATEWAY,
                     "GEMINI_PROVIDER_ERROR", "Gemini could not interpret the shopping request.");
         } catch (JsonProcessingException | IllegalArgumentException exception) {

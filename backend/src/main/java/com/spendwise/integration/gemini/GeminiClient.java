@@ -67,10 +67,29 @@ public class GeminiClient {
         } catch (ResourceAccessException exception) {
             throw new GeminiTimeoutException();
         } catch (RestClientResponseException exception) {
-            throw new GeminiProviderException();
+            throw new GeminiProviderException(isInvalidApiKey(exception));
         } catch (RestClientException exception) {
             throw new GeminiProviderException();
         }
+    }
+
+    private boolean isInvalidApiKey(RestClientResponseException exception) {
+        if (exception.getStatusCode().value() != 400) {
+            return false;
+        }
+        try {
+            JsonNode response = exception.getResponseBodyAs(JsonNode.class);
+            if (response != null) {
+                for (JsonNode detail : response.path("error").path("details")) {
+                    if ("API_KEY_INVALID".equals(detail.path("reason").asText())) {
+                        return true;
+                    }
+                }
+            }
+        } catch (RestClientException | IllegalStateException ignored) {
+            // Unrecognized error payloads retain the generic provider error.
+        }
+        return false;
     }
 
     private String extractText(JsonNode response) {

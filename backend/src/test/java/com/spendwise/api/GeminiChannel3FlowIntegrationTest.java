@@ -88,6 +88,37 @@ class GeminiChannel3FlowIntegrationTest {
     }
 
     @Test
+    void fallsBackToChannel3KeywordsAndPreservesExplicitBudgetWhenGeminiRejectsItsKey() throws Exception {
+        when(geminiService.extractShoppingIntent("boAt headphones under $50"))
+                .thenThrow(new com.spendwise.common.exception.ApiException(
+                        org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                        "GEMINI_INVALID_API_KEY", "Gemini rejected the configured API key."));
+        when(channel3Client.search(anyString(), any(), anyString(), anyString()))
+                .thenReturn(objectMapper.readTree("""
+                        {"products":[{"id":"headphones-1","title":"boAt headphones",
+                          "offers":[{"domain":"shop.example","url":"https://shop.example/headphones",
+                            "availability":"InStock","price":{"price":45.00,"currency":"USD"}}]}]}
+                        """));
+
+        mockMvc.perform(post("/api/v1/shopping/search")
+                        .with(authenticatedAsOwner())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"boAt headphones under $50\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.intent.normalizedQuery").value("boAt headphones"))
+                .andExpect(jsonPath("$.intent.requestedMaxPrice").value("50"))
+                .andExpect(jsonPath("$.eligibleCandidates[0].productTitle").value("boAt headphones"))
+                .andExpect(jsonPath("$.recommendation").value(org.hamcrest.Matchers.containsString("Channel3 keyword search")));
+
+        org.mockito.Mockito.verify(channel3Client).search(
+                org.mockito.ArgumentMatchers.eq("boAt headphones"),
+                argThat(price -> price != null && price.compareTo(new BigDecimal("50")) == 0),
+                org.mockito.ArgumentMatchers.eq("US"), org.mockito.ArgumentMatchers.eq("USD"));
+        org.mockito.Mockito.verify(geminiService, org.mockito.Mockito.never())
+                .explainShoppingCandidates(anyString(), any(), any());
+    }
+
+    @Test
     void interpretsShoppingRequestWithGeminiThenSendsStructuredQueryToChannel3() throws Exception {
         when(geminiService.extractShoppingIntent("Find a laptop under $50 for coding"))
                 .thenReturn(new GeminiShoppingIntent(

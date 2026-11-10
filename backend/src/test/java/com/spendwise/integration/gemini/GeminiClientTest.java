@@ -19,6 +19,27 @@ import org.springframework.web.client.RestClient;
 class GeminiClientTest {
 
     @Test
+    void identifiesGoogleInvalidApiKeyWithoutExposingItsResponse() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://generativelanguage.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(
+                        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"error":{"code":400,"details":[{"reason":"API_KEY_INVALID"}]}}
+                        """));
+        GeminiClient client = new GeminiClient(builder.build(), "test-gemini-key", "gemini-3.8-flash");
+        GeminiService service = new GeminiService(client, new com.fasterxml.jackson.databind.ObjectMapper());
+
+        assertThatThrownBy(() -> service.extractShoppingIntent("boAt headphones"))
+                .isInstanceOfSatisfying(com.spendwise.common.exception.ApiException.class, error -> {
+                    assertThat(error.getCode()).isEqualTo("GEMINI_INVALID_API_KEY");
+                    assertThat(error.getMessage()).doesNotContain("test-gemini-key", "API_KEY_INVALID");
+                });
+        server.verify();
+    }
+
+    @Test
     void sendsPromptToGeminiAndExtractsGeneratedText() {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://generativelanguage.googleapis.com");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

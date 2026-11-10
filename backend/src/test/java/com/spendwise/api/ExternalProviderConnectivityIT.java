@@ -19,21 +19,27 @@ class ExternalProviderConnectivityIT {
 
     @Test
     @EnabledIfEnvironmentVariable(named = "SPENDWISE_EXTERNAL_INTEGRATION_TESTS", matches = "true")
-    void reachesConfiguredGeminiChannel3AndPayPalSandbox() {
+    void reachesConfiguredGemini() {
         ClientHttpRequestFactory requestFactory = requestFactory();
         String geminiBaseUrl = env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com");
         RestClient geminiRestClient = RestClient.builder().baseUrl(geminiBaseUrl)
-                .requestFactory(requestFactory).build();
+                .requestFactory(requestFactory()).build();
         GeminiClient gemini = new GeminiClient(geminiRestClient, env("GEMINI_API_KEY", ""),
                 env("GEMINI_MODEL", "gemini-3.8-flash"));
         assertThat(gemini.generate(new GeminiRequest("Reply with the single word OK." )).text()).isNotBlank();
+    }
 
-        Channel3Client channel3 = new Channel3Client(requestFactory,
+    @Test
+    void reachesConfiguredChannel3() {
+        Channel3Client channel3 = new Channel3Client(requestFactory(),
                 env("CHANNEL3_BASE_URL", "https://api.trychannel3.com"), env("CHANNEL3_API_KEY", ""), 1);
         JsonNode products = channel3.search("wireless headphones", null, "US", "USD");
         assertThat(products.path("products").isArray()).isTrue();
+    }
 
-        PayPalAuthService paypal = new PayPalAuthService(requestFactory,
+    @Test
+    void reachesConfiguredPayPalSandbox() {
+        PayPalAuthService paypal = new PayPalAuthService(requestFactory(),
                 env("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com"),
                 env("PAYPAL_CLIENT_ID", ""), env("PAYPAL_CLIENT_SECRET", ""));
         assertThat(paypal.accessToken()).isNotBlank();
@@ -49,6 +55,9 @@ class ExternalProviderConnectivityIT {
     private static String env(String name, String defaultValue) {
         String value = System.getenv(name);
         if (value == null || value.isBlank()) {
+            if (!defaultValue.isBlank()) {
+                return defaultValue;
+            }
             throw new IllegalStateException(name + " must be set for external provider tests.");
         }
         return value;

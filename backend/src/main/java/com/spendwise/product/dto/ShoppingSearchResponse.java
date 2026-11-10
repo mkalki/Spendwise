@@ -28,7 +28,17 @@ public record ShoppingSearchResponse(
             String keywords,
             String requestedMaxPrice,
             String currencyCode,
-            String countryCode) {
+            String countryCode,
+            String category,
+            String useCase,
+            List<String> preferences,
+            String promptMaxPrice,
+            String effectiveMaxPrice) {
+        public ShoppingIntent(String normalizedQuery, String keywords, String requestedMaxPrice,
+                String currencyCode, String countryCode) {
+            this(normalizedQuery, keywords, requestedMaxPrice, currencyCode, countryCode,
+                    null, null, List.of(), requestedMaxPrice, null);
+        }
     }
 
     public record ProductCandidateView(

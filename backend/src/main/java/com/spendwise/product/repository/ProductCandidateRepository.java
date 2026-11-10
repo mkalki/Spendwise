@@ -1,13 +1,18 @@
 package com.spendwise.product.repository;
 
 import com.spendwise.product.entity.ProductCandidate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ProductCandidateRepository extends JpaRepository<ProductCandidate, UUID> {
+
+    List<ProductCandidate> findBySearchSessionOwnerIdAndEligibleFalseOrderByRetrievedAtDescIdDesc(
+            String ownerId, Pageable pageable);
 
     @Query("""
             select candidate

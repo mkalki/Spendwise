@@ -227,7 +227,12 @@ Example provider request:
     "keywords": "Find wireless mechanical keyboards with good battery life",
     "requestedMaxPrice": "45",
     "currencyCode": "USD",
-    "countryCode": "US"
+    "countryCode": "US",
+    "category": "mechanical keyboards",
+    "useCase": null,
+    "preferences": ["wireless", "good battery life"],
+    "promptMaxPrice": "45",
+    "effectiveMaxPrice": "45"
   },
   "eligibleCandidates": [
     {
@@ -445,6 +450,13 @@ displayed item from its retailer.
 
 `GET /api/v1/transactions` returns the authenticated user's transactions,
 newest first.
+
+`GET /api/v1/transactions/blocked` returns up to five recent blocked
+checkout attempts and five recently rejected search offers for the signed-in
+user. The lists are `checkoutAttempts` and `rejectedOffers`, each newest first.
+Entries include `id`, `productName`, `reason`, and `createdAt`, with
+`amount` and `currency` when available. Checkout blocks are recorded when
+the app stops a new checkout for policy or offer validity.
 
 `GET /api/v1/transactions/summary` returns completed weekly spend, active
 reservations, remaining budget, completed orders, and the order limit for the

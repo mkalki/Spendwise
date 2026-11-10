@@ -1,17 +1,42 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, Search, Send, Sparkles, ShieldCheck } from "lucide-react";
 
 import { api } from "../services/api";
+import "./Shopping.css";
+
+function IntentReview({ result }) {
+  const { intent, eligibleCandidates, rejectedCandidates } = result;
+  const offerCount = eligibleCandidates.length + rejectedCandidates.length;
+
+  return (
+    <section className="chat-message assistant intent-review" aria-labelledby="intent-heading">
+      <span className="chat-role">SPENDWISE</span>
+      <h3 id="intent-heading">How I interpreted your request</h3>
+      <dl>
+        <div><dt>Search terms</dt><dd>{intent.normalizedQuery}</dd></div>
+        <div><dt>Category</dt><dd>{intent.category || "Unspecified"}</dd></div>
+        <div><dt>Requested budget</dt><dd>{intent.promptMaxPrice ? `${intent.currencyCode} ${intent.promptMaxPrice}` : "Unspecified"}</dd></div>
+        {intent.effectiveMaxPrice && <div><dt>Search price cap</dt><dd>{intent.currencyCode} {intent.effectiveMaxPrice}</dd></div>}
+        {intent.useCase && <div><dt>Use case</dt><dd>{intent.useCase}</dd></div>}
+        <div><dt>Preferences</dt><dd>{intent.preferences?.length ? intent.preferences.join(", ") : "Unspecified"}</dd></div>
+      </dl>
+      <p className="shop-muted">You can edit your prompt below and search again.</p>
+      <Link className="save-button" to="/products">
+        {offerCount ? `View ${offerCount} ${offerCount === 1 ? "offer" : "offers"}` : "View search results"}
+        <ArrowUpRight size={16} aria-hidden="true" />
+      </Link>
+    </section>
+  );
+}
 
 export default function ShoppingAssistant({ userId }) {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [message, setMessage] = useState(searchParams.get("query") || "");
   const [searching, setSearching] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [submittedMessage, setSubmittedMessage] = useState("");
+  const [result, setResult] = useState(null);
   const suggestions = [
     "Find the best laptop under ₹60,000.",
     "Find wireless headphones for studying.",
@@ -27,10 +52,11 @@ export default function ShoppingAssistant({ userId }) {
     setSearching(true);
     setErrorMessage("");
     setSubmittedMessage(requestMessage);
+    setResult(null);
     try {
       const result = await api.searchShopping(requestMessage);
       sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result }));
-      navigate("/products");
+      setResult(result);
     } catch (error) {
       setErrorMessage(error.message || "Unable to search products.");
     } finally {
@@ -74,6 +100,7 @@ export default function ShoppingAssistant({ userId }) {
               Searching policy-aware options...
             </div>
           )}
+          {result && <IntentReview result={result} />}
         </div>
 
         {errorMessage && <div className="policy-message error-message">{errorMessage}</div>}

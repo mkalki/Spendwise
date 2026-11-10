@@ -2,6 +2,8 @@ package com.spendwise.checkout.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.spendwise.audit.service.AuditService;
+import com.spendwise.checkout.dto.BlockedPurchaseHistoryResponse;
+import com.spendwise.checkout.dto.BlockedPurchaseHistoryResponse.Entry;
 import com.spendwise.checkout.dto.CheckoutResponse;
 import com.spendwise.checkout.dto.TransactionHistoryResponse;
 import com.spendwise.checkout.dto.TransactionHistoryResponse.TransactionView;
@@ -28,7 +30,10 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.time.DayOfWeek;
+import java.util.HashMap;
 import java.util.Optional;
+import java.util.Set;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -42,6 +47,10 @@ import org.springframework.web.client.RestClientResponseException;
 public class CheckoutService {
 
     private static final long RESERVATION_MINUTES = 30;
+    private static final String CHECKOUT_BLOCKED = "CHECKOUT_BLOCKED";
+    private static final Set<String> BLOCKED_CHECKOUT_CODES = Set.of(
+            "PRODUCT_NOT_ELIGIBLE", "POLICY_NOT_FOUND", "POLICY_INACTIVE", "CURRENCY_MISMATCH",
+            "POLICY_LIMIT_EXCEEDED", "ORDER_FREQUENCY_LIMIT_EXCEEDED", "OFFER_NO_LONGER_AVAILABLE");
 
     private final Channel3Client channel3Client;
     private final Channel3UserRateLimiter channel3RateLimiter;
@@ -106,16 +115,7 @@ public class CheckoutService {
             throw conflict("CHECKOUT_IN_PROGRESS", "A checkout using this idempotency key is already in progress.");
         }
 
-        if (!candidate.isEligible()) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT, "PRODUCT_NOT_ELIGIBLE", "The selected product did not pass policy checks.");
-        }
-
-        SpendingPolicy policy = policyRepository.findByOwnerId(ownerId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND, "POLICY_NOT_FOUND", "No spending policy has been configured."));
-        RefreshedOffer refreshed = refreshOffer(ownerId, candidate, policy);
-        PaymentTransaction reserved = reserve(ownerId, candidate, refreshed, idempotencyKey);
+        PaymentTransaction reserved = reserveNewCheckout(ownerId, candidate, idempotencyKey);
 
         PaymentGateway.OrderCreation order;
         try {
@@ -191,19 +191,13 @@ public class CheckoutService {
                 throw conflict("CHECKOUT_IN_PROGRESS", "A checkout using this idempotency key is already in progress.");
             }
         }
-        if (!candidate.isEligible()) {
-            throw conflict("PRODUCT_NOT_ELIGIBLE", "The selected product did not pass policy checks.");
-        }
-        SpendingPolicy policy = policyRepository.findByOwnerId(ownerId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND, "POLICY_NOT_FOUND", "No spending policy has been configured."));
         PaymentTransaction reserved;
         if (existing != null && "REQUIRES_RECONCILIATION".equals(existing.getStatus())
                 && existing.getPaypalOrderId() == null) {
+            requireCheckoutPolicy(ownerId, candidate);
             reserved = existing;
         } else {
-            RefreshedOffer refreshed = refreshOffer(ownerId, candidate, policy);
-            reserved = reserve(ownerId, candidate, refreshed, idempotencyKey);
+            reserved = reserveNewCheckout(ownerId, candidate, idempotencyKey);
         }
 
         PaymentGateway.VaultOrderCreation order;
@@ -556,6 +550,56 @@ public class CheckoutService {
                 transactionRepository.activeReservationCount(ownerId, now),
                 policy.getMaxOrdersPerWeek(),
                 policy.getCurrencyCode());
+    }
+
+    @Transactional(readOnly = true)
+    public BlockedPurchaseHistoryResponse blockedHistory(String ownerId) {
+        var attempts = auditService.recentEvents(ownerId, CHECKOUT_BLOCKED).stream().map(event -> {
+            JsonNode details = event.getDetails();
+            return new Entry(event.getId().toString(), details.path("productName").asText(),
+                    details.path("amount").asText(null), details.path("currency").asText(null),
+                    details.path("reason").asText(), event.getCreatedAt());
+        }).toList();
+        var rejectedOffers = candidateRepository
+                .findBySearchSessionOwnerIdAndEligibleFalseOrderByRetrievedAtDescIdDesc(ownerId, PageRequest.ofSize(5))
+                .stream().map(candidate -> new Entry(
+                        candidate.getId().toString(), candidate.getProductTitle(),
+                        candidate.getListedPrice() == null ? null : candidate.getListedPrice().toPlainString(),
+                        candidate.getCurrencyCode(), candidate.getRejectionReason(), candidate.getRetrievedAt()))
+                .toList();
+        return new BlockedPurchaseHistoryResponse(attempts, rejectedOffers);
+    }
+
+    private SpendingPolicy requireCheckoutPolicy(String ownerId, ProductCandidate candidate) {
+        if (!candidate.isEligible()) {
+            throw conflict("PRODUCT_NOT_ELIGIBLE", "The selected product did not pass policy checks.");
+        }
+        return policyRepository.findByOwnerId(ownerId)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND, "POLICY_NOT_FOUND", "No spending policy has been configured."));
+    }
+
+    private PaymentTransaction reserveNewCheckout(String ownerId, ProductCandidate candidate, String idempotencyKey) {
+        RefreshedOffer offer = null;
+        try {
+            SpendingPolicy policy = requireCheckoutPolicy(ownerId, candidate);
+            offer = refreshOffer(ownerId, candidate, policy);
+            return reserve(ownerId, candidate, offer, idempotencyKey);
+        } catch (ApiException exception) {
+            if (BLOCKED_CHECKOUT_CODES.contains(exception.getCode())) {
+                String reason = "PRODUCT_NOT_ELIGIBLE".equals(exception.getCode()) && candidate.getRejectionReason() != null
+                        ? candidate.getRejectionReason() : exception.getMessage();
+                BigDecimal amount = offer == null ? candidate.getListedPrice() : offer.amount();
+                var details = new HashMap<String, String>();
+                details.put("productName", candidate.getProductTitle());
+                details.put("reason", reason);
+                details.put("amount", amount == null ? null : amount.toPlainString());
+                details.put("currency", offer == null ? candidate.getCurrencyCode() : offer.currencyCode());
+                // The reservation transaction has rolled back before recording the block.
+                auditService.record(ownerId, CHECKOUT_BLOCKED, details);
+            }
+            throw exception;
+        }
     }
 
     private PaymentTransaction reserve(

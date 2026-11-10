@@ -213,6 +213,10 @@ export const api = {
     return request("/v1/transactions");
   },
 
+  getBlockedPurchases() {
+    return request("/v1/transactions/blocked");
+  },
+
   async createCheckout(searchSessionId, candidateId) {
     const body = JSON.stringify({ searchSessionId, candidateId });
     if (pendingCheckouts.has(body)) return pendingCheckouts.get(body);

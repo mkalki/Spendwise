@@ -102,8 +102,8 @@ public class ProductSearchService {
         validateBudgetCurrency(literalIntent.requestedCurrency(), policy.getCurrencyCode());
         validateBudgetCurrency(aiIntent.budgetCurrency(), policy.getCurrencyCode());
         ShoppingSearchFilters filters = request.filters();
-        BigDecimal requestedMaxPrice = stricterBudget(
-                stricterBudget(literalIntent.requestedMaxPrice(), aiIntent.budget()), filters.maxPrice());
+        BigDecimal promptMaxPrice = stricterBudget(literalIntent.requestedMaxPrice(), aiIntent.budget());
+        BigDecimal requestedMaxPrice = stricterBudget(promptMaxPrice, filters.maxPrice());
         if (savedPreferences.maxPrice() != null && policy.getCurrencyCode().equals(savedPreferences.currencyCode())) {
             requestedMaxPrice = stricterBudget(requestedMaxPrice, savedPreferences.maxPrice());
         }
@@ -221,7 +221,12 @@ public class ProductSearchService {
                         literalIntent.keywords(),
                         requestedMaxPrice == null ? null : requestedMaxPrice.toPlainString(),
                         policy.getCurrencyCode(),
-                        policy.getCountryCode()),
+                        policy.getCountryCode(),
+                        aiIntent.category(),
+                        aiIntent.useCase(),
+                        aiIntent.preferences(),
+                        promptMaxPrice == null ? null : promptMaxPrice.toPlainString(),
+                        effectiveMax.toPlainString()),
                 eligible,
                 rejected,
                 recommendation,

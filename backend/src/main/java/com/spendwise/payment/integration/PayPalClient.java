@@ -206,6 +206,7 @@ public class PayPalClient implements PaymentGateway {
                 .body(JsonNode.class));
         String orderId = text(response, "id");
         String approvalUrl = link(response, "approve");
+        if (!StringUtils.hasText(approvalUrl)) approvalUrl = link(response, "payer-action");
         CaptureResult capture = firstCapture(response);
         if (!StringUtils.hasText(orderId)) throw new PaymentProviderException();
         return new VaultOrderCreation(orderId, isPayPalApprovalUrl(approvalUrl) ? approvalUrl : null, capture);

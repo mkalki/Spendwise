@@ -131,7 +131,7 @@ public class SecurityConfiguration {
 
     @Bean
     CorsConfigurationSource corsConfigurationSource(
-            @Value("${spendwise.auth.frontend-origin:http://localhost:3000}") String frontendOrigin) {
+            @Value("${spendwise.auth.frontend-origin}") String frontendOrigin) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(frontendOrigin));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));

@@ -92,6 +92,9 @@ public class CheckoutService {
             if (!candidateId.equals(existing.getCandidateId())) {
                 throw conflict("IDEMPOTENCY_KEY_REUSED", "The idempotency key was already used for another product.");
             }
+            if ("EXPIRED".equals(existing.getStatus())) {
+                throw checkoutExpired();
+            }
             if ("APPROVED".equals(existing.getStatus()) || "COMPLETED".equals(existing.getStatus())) {
                 return CheckoutResponse.from(existing);
             }
@@ -163,6 +166,9 @@ public class CheckoutService {
         CaptureStart start = transactions.execute(status -> {
             PaymentTransaction transaction = findForUpdate(ownerId, checkoutId);
             Instant now = Instant.now();
+            if ("EXPIRED".equals(transaction.getStatus())) {
+                throw checkoutExpired();
+            }
             if ("COMPLETED".equals(transaction.getStatus())) {
                 return new CaptureStart(transaction, false, true, false, false);
             }
@@ -191,7 +197,7 @@ public class CheckoutService {
         });
 
         if (start.expired()) {
-            throw conflict("CHECKOUT_EXPIRED", "The checkout reservation has expired.");
+            throw checkoutExpired();
         }
         if (start.alreadyCompleted()) {
             return CheckoutResponse.from(start.transaction());
@@ -260,6 +266,9 @@ public class CheckoutService {
         PaymentTransaction transaction = transactionRepository.findByOwnerIdAndId(ownerId, checkoutId)
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND, "CHECKOUT_NOT_FOUND", "The checkout session was not found."));
+        if ("EXPIRED".equals(transaction.getStatus())) {
+            throw checkoutExpired();
+        }
         if ("CANCELLED".equals(transaction.getStatus())) {
             return CheckoutResponse.from(transaction);
         }
@@ -273,7 +282,7 @@ public class CheckoutService {
         if (transaction.getReservationExpiresAt() != null
                 && !transaction.getReservationExpiresAt().isAfter(Instant.now())) {
             updateStatus(ownerId, checkoutId, PaymentTransaction::markExpired);
-            throw conflict("CHECKOUT_EXPIRED", "The checkout reservation has expired.");
+            throw checkoutExpired();
         }
 
         boolean safeToCancel;
@@ -617,6 +626,10 @@ public class CheckoutService {
                 "POLICY_LIMIT_EXCEEDED",
                 message,
                 java.util.Map.of("limit", limit.toPlainString(), "currency", currency));
+    }
+
+    private ApiException checkoutExpired() {
+        return conflict("CHECKOUT_EXPIRED", "The checkout reservation has expired. Start a new checkout from your cart.");
     }
 
     private ApiException conflict(String code, String message) {

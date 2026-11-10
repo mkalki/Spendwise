@@ -9,6 +9,7 @@ Channel3 discovery links and a PayPal Sandbox payment are separate actions: the 
 ## Current stack
 
 - Java 21, Spring Boot 3.5, Maven, PostgreSQL
+- React and Vite frontend
 - Channel3 product discovery and PayPal Orders v2 Sandbox integrations
 - Gemini intent extraction and ID-only product ranking over actual Channel3 search results
 
@@ -18,6 +19,7 @@ Channel3 discovery links and a PayPal Sandbox payment are separate actions: the 
 2. Start PostgreSQL and the API with `docker compose up -d --build`. Compose starts a PostgreSQL 18 container with a named persistent volume, waits for its health check, then starts the backend against that database.
 3. Flyway applies pending migrations from `backend/src/main/resources/db/migration` on API startup; Hibernate validates the mapped schema and does not create tables. Add schema changes as new `V2__...sql`, `V3__...sql` files; do not edit a migration after it has run in a shared database.
 4. Check the API at `http://localhost:8080/api/health` and PostgreSQL on `localhost:${POSTGRES_PORT:-5432}`.
+5. From the repository root, install frontend dependencies with `npm --prefix frontend ci` and start Vite with `npm --prefix frontend run dev`. Open `http://localhost:5173`.
 
 ### Google sign-in
 
@@ -28,9 +30,17 @@ backend. The frontend origin and post-login destination are configured with
 `FRONTEND_ORIGIN` and `AUTH_SUCCESS_URL`. Use HTTPS and set
 `SESSION_COOKIE_SECURE=true` outside local development.
 
-Start sign-in by navigating the browser to
-`http://localhost:8080/oauth2/authorization/google`. After Google verifies the
-user, Spring creates a server-side session and redirects to `AUTH_SUCCESS_URL`.
+Start sign-in from the frontend at `http://localhost:5173`. The browser opens
+`/api/auth/google/login` on the frontend origin and Vite proxies the OAuth
+requests to Spring. After Google verifies the user, Spring creates a
+server-side session and redirects to `AUTH_SUCCESS_URL`.
+
+In production, proxy `/api/*`, `/oauth2/*`, and `/login/oauth2/*` on the public
+frontend origin to Spring. Set `FRONTEND_ORIGIN` to that HTTPS origin,
+`AUTH_SUCCESS_URL` to the frontend URL users should land on, and
+`GOOGLE_REDIRECT_URI` to the public `/login/oauth2/code/google` URL. Register
+that exact callback URL in the Google OAuth client.
+
 The frontend can fetch `/api/auth/me` with credentials to read the signed-in
 user, and call `POST /api/auth/logout` with the CSRF header/token obtained from
 `GET /api/auth/csrf`. The session is the authentication credential; do not put
@@ -45,6 +55,19 @@ in `X-XSRF-TOKEN` with signup/login/logout requests. Passwords are stored as
 PBKDF2 hashes. Google login and signup are available at
 `/api/auth/google/login` and `/api/auth/google/signup`; first Google sign-in
 creates the account when its verified email is unused.
+
+### Cart and checkout details
+
+The same account sees the same cart, delivery address, and billing address on
+devices connected to the same Spendwise deployment. Separate local Docker
+databases have separate accounts and carts, even if the email addresses match.
+
+Add an eligible offer from Products, then open Cart and select an offer to
+check out. Spendwise rechecks the offer and spending policy before sending you
+to PayPal Sandbox. The cart can hold multiple offers. Each Sandbox checkout
+handles one offer, and the retailer link is where actual purchases are made.
+Payment credentials are entered on PayPal. Spendwise saves only the address
+details entered in the cart.
 
 Set `CHANNEL3_API_KEY` to enable live shopping search and `PAYPAL_CLIENT_ID` /
 `PAYPAL_CLIENT_SECRET` to enable Sandbox checkout. Set `PAYPAL_WEBHOOK_ID` to
@@ -138,13 +161,13 @@ first; obtain a CSRF token from `GET /api/auth/csrf` before trying a
 state-changing request. Shopping search uses Gemini to structure the request
 before Channel3 search. AI ranking can only reorder eligible Channel3 result
 IDs; policy enforcement and all product facts remain server-controlled.
-Spring AI framework adoption and the frontend remain future work.
+Spring AI framework adoption remains future work.
 
 Schema additions are in `V2__add_shopping_and_checkout_api.sql`,
 `V3__retain_search_price_limits.sql`, `V4__create_user_accounts.sql`, and
 `V5__repair_payment_candidate_reference.sql`, `V6__add_shopping_preferences.sql`,
-and `V7__track_paypal_refunds.sql`. The repair migration restores the
-optional candidate foreign key if a database drifted after V2. Earlier
+`V7__track_paypal_refunds.sql`, and `V8__add_cart_and_checkout_details.sql`.
+The repair migration restores the optional candidate foreign key if a database drifted after V2. Earlier
 migrations are not edited.
 
 ## Testing
@@ -196,5 +219,5 @@ k6 run load-tests/spendwise-api.js
 | Error handling, validation, and Swagger | Implemented with stable JSON API errors and documented routes. |
 | Unit, controller, and database tests | Implemented; PostgreSQL Testcontainers coverage is skipped when Docker is unavailable. |
 | Load testing | k6 script added for authenticated, database-backed API requests. |
-| Frontend | Not implemented; the repository currently contains the backend API. |
+| Frontend | React app with sign-in, a spending dashboard, the shopping assistant, product filters and recommendations, a saved cart, and PayPal Sandbox checkout. |
 | Live Sandbox lifecycle test | Still needs a configured webhook, Sandbox buyer approval, and end-to-end confirmation in the developer account. |

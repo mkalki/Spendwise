@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -21,7 +22,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.view.RedirectView;
 
 @Tag(name = "Authentication", description = "Password and Google signup, login, session, and CSRF APIs.")
 @RestController
@@ -70,13 +70,13 @@ public class AuthController {
 
     @GetMapping("/google/login")
     @Operation(summary = "Start Google login", description = "Redirects to Google. Existing Google accounts sign in; first-time users are registered automatically.")
-    public RedirectView googleLogin() {
+    public ResponseEntity<Void> googleLogin() {
         return googleAuthorizationRedirect();
     }
 
     @GetMapping("/google/signup")
     @Operation(summary = "Start Google signup", description = "Redirects to Google. A verified Google identity is registered on first sign-in.")
-    public RedirectView googleSignup() {
+    public ResponseEntity<Void> googleSignup() {
         return googleAuthorizationRedirect();
     }
 
@@ -86,10 +86,10 @@ public class AuthController {
         return accountService.profile(userId);
     }
 
-    private RedirectView googleAuthorizationRedirect() {
-        RedirectView redirect = new RedirectView("/oauth2/authorization/google");
-        redirect.setExposeModelAttributes(false);
-        return redirect;
+    private ResponseEntity<Void> googleAuthorizationRedirect() {
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create("/oauth2/authorization/google"))
+                .build();
     }
 
     public record CsrfResponse(String headerName, String token) {

@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.spendwise.checkout.dto.CheckoutResponse;
 import com.spendwise.checkout.dto.TransactionHistoryResponse;
 import com.spendwise.checkout.dto.TransactionSummaryResponse;
+import com.spendwise.checkout.service.CartService;
 import com.spendwise.checkout.service.CheckoutService;
 import com.spendwise.payment.entity.PaymentTransaction;
 import com.spendwise.integration.gemini.GeminiService;
@@ -61,6 +62,9 @@ class SpendwiseApiIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private CartService cartService;
 
     @MockitoBean
     private SpendingPolicyService policyService;

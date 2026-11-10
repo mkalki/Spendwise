@@ -1,0 +1,6 @@
+numpy>=2.0
+Pillow>=11
+trimesh>=4
+pyrender==0.1.45
+imageio-ffmpeg>=0.6
+pyglet<2

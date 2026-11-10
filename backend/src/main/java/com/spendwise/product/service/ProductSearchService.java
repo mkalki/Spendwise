@@ -88,7 +88,17 @@ public class ProductSearchService {
         ShoppingPreferencesResponse savedPreferences = profileService.getPreferences(ownerId);
         if (savedPreferences == null) savedPreferences = ShoppingPreferencesResponse.empty();
         ShoppingIntentService.ParsedIntent literalIntent = intentService.parse(request.message());
-        GeminiShoppingIntent aiIntent = geminiService.extractShoppingIntent(request.message());
+        GeminiShoppingIntent aiIntent;
+        boolean keywordFallback = false;
+        try {
+            aiIntent = geminiService.extractShoppingIntent(request.message());
+        } catch (ApiException exception) {
+            if (!"GEMINI_INVALID_API_KEY".equals(exception.getCode()) || literalIntent.keywords().isBlank()) {
+                throw exception;
+            }
+            aiIntent = new GeminiShoppingIntent(literalIntent.keywords(), null, null, null, null, List.of());
+            keywordFallback = true;
+        }
         validateBudgetCurrency(literalIntent.requestedCurrency(), policy.getCurrencyCode());
         validateBudgetCurrency(aiIntent.budgetCurrency(), policy.getCurrencyCode());
         ShoppingSearchFilters filters = request.filters();
@@ -143,14 +153,16 @@ public class ProductSearchService {
         UUID sessionId = UUID.randomUUID();
         ShoppingSearchSession session = new ShoppingSearchSession(
                 sessionId, ownerId, request.message().strip(), aiIntent.normalizedQuery(), effectiveMax);
-        List<ProductCandidate> candidates = mapCandidates(
-                response.path("products"), session, policy, effectiveMax, filters.minPrice());
+        JsonNode products = response.path("products");
+        Map<String, JsonNode> productsById = new java.util.HashMap<>();
+        products.forEach(product -> productsById.putIfAbsent(text(product, "id"), product));
+        List<ProductCandidate> candidates = mapCandidates(products, session, policy, effectiveMax, filters.minPrice());
         List<ProductCandidate> eligibleCandidates = candidates.stream()
                 .filter(ProductCandidate::isEligible)
                 .toList();
-        CandidateRanking ranking = eligibleCandidates.isEmpty()
+        CandidateRanking ranking = keywordFallback || eligibleCandidates.isEmpty()
                 ? CandidateRanking.unavailable(eligibleCandidates)
-                : explainEligibleCandidates(request.message(), savedPreferences, eligibleCandidates);
+                : explainEligibleCandidates(request.message(), savedPreferences, eligibleCandidates, productsById);
         boolean aiRankingApplied = false;
         if (request.sortBy() == ShoppingSortBy.LOWEST_PRICE) {
             eligibleCandidates = eligibleCandidates.stream()
@@ -180,11 +192,12 @@ public class ProductSearchService {
         });
 
         List<ShoppingSearchResponse.ProductCandidateView> eligible = finalEligibleCandidates.stream()
-                .map(candidate -> toView(candidate, ranking.explanations().get(candidate.getId())))
+                .map(candidate -> toView(candidate, ranking.explanations().get(candidate.getId()),
+                        productsById.get(candidate.getChannel3ProductId())))
                 .toList();
         List<ShoppingSearchResponse.ProductCandidateView> rejected = candidates.stream()
                 .filter(candidate -> !candidate.isEligible())
-                .map(candidate -> toView(candidate, null))
+                .map(candidate -> toView(candidate, null, productsById.get(candidate.getChannel3ProductId())))
                 .toList();
         String recommendation = eligible.isEmpty() ? null : switch (request.sortBy()) {
             case BEST_MATCH -> "Channel3's best-matching eligible results for your search.";
@@ -195,6 +208,11 @@ public class ProductSearchService {
             case LOWEST_PRICE -> "Lowest-priced eligible offer: " + eligible.getFirst().productTitle()
                     + " from " + eligible.getFirst().merchantName() + ".";
         };
+        if (keywordFallback) {
+            String notice = "Gemini rejected the configured API key. Used Channel3 keyword search with your spending rules.";
+            recommendation = recommendation == null || request.sortBy() == ShoppingSortBy.AI_RECOMMENDED
+                    ? notice : notice + " " + recommendation;
+        }
 
         return new ShoppingSearchResponse(
                 sessionId,
@@ -208,19 +226,21 @@ public class ProductSearchService {
                 rejected,
                 recommendation,
                 ranking.summary(),
-                request.sortBy());
+                request.sortBy(),
+                aiRankingApplied);
     }
 
     private CandidateRanking explainEligibleCandidates(
             String userRequest,
             ShoppingPreferencesResponse preferences,
-            List<ProductCandidate> candidates) {
+            List<ProductCandidate> candidates,
+            Map<String, JsonNode> productsById) {
         List<GeminiRecommendationCandidate> rankingInput = candidates.stream()
                 .map(candidate -> new GeminiRecommendationCandidate(
                         candidate.getId(), candidate.getProductTitle(), candidate.getBrand(),
                         candidate.getMerchantName(), candidate.getListedPrice() == null
                                 ? null : candidate.getListedPrice().toPlainString(),
-                        candidate.getCurrencyCode()))
+                        candidate.getCurrencyCode(), rating(productsById.get(candidate.getChannel3ProductId()))))
                 .toList();
         try {
             GeminiRecommendationResult result = geminiService.explainShoppingCandidates(
@@ -439,7 +459,20 @@ public class ProductSearchService {
         return currencyCode != null && currencyCode.matches("[A-Z]{3}") ? currencyCode : null;
     }
 
-    private ShoppingSearchResponse.ProductCandidateView toView(ProductCandidate candidate, String explanation) {
+    private ShoppingSearchResponse.ProductRating rating(JsonNode product) {
+        JsonNode ratings = product.path("ratings");
+        BigDecimal value = decimal(ratings.path("value"));
+        JsonNode count = ratings.path("count");
+        if (value == null || value.signum() < 0 || value.compareTo(BigDecimal.valueOf(5)) > 0
+                || !count.isIntegralNumber() || !count.canConvertToLong() || count.asLong() < 1) {
+            return null;
+        }
+        int sources = Math.max(0, ratings.path("source_count").asInt());
+        return new ShoppingSearchResponse.ProductRating(value, count.asLong(), sources);
+    }
+
+    private ShoppingSearchResponse.ProductCandidateView toView(
+            ProductCandidate candidate, String explanation, JsonNode product) {
         return new ShoppingSearchResponse.ProductCandidateView(
                 candidate.getId(),
                 candidate.getChannel3ProductId(),
@@ -452,6 +485,8 @@ public class ProductSearchService {
                 candidate.getCurrencyCode(),
                 candidate.isEligible(),
                 candidate.getRejectionReason(),
-                explanation);
+                explanation,
+                text(product, "description"),
+                rating(product));
     }
 }

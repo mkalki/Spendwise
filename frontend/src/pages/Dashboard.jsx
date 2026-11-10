@@ -18,6 +18,22 @@ function DashboardSurface({ children, className = '', ...props }) {
   return <div className={`studio-surface ${className}`} {...props}>{children}</div>;
 }
 
+function BlockedHistoryList({ title, entries, empty }) {
+  return <div>
+    <h4>{title}</h4>
+    {entries.length ? <ul className="studio-blocked-list">
+      {entries.map(item => <li key={item.id}>
+        <div>
+          <strong>{item.productName}</strong>
+          <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleDateString()}</time>
+        </div>
+        {item.amount != null && item.currency && <span>{item.currency} {item.amount}</span>}
+        <p>{item.reason || 'The offer did not pass the eligibility checks.'}</p>
+      </li>)}
+    </ul> : <p>{empty}</p>}
+  </div>;
+}
+
 export default function Dashboard({ user }) {
   const navigate = useNavigate();
   const track = useRef(null);
@@ -26,6 +42,7 @@ export default function Dashboard({ user }) {
   const [policy, setPolicy] = useState(null);
   const [summary, setSummary] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [blockedHistory, setBlockedHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   const [errors, setErrors] = useState([]);
@@ -40,13 +57,16 @@ export default function Dashboard({ user }) {
 
   useEffect(() => {
     let active = true;
-    Promise.allSettled([api.getPolicy(), api.getTransactionSummary(), api.getTransactions()]).then(results => {
+    Promise.allSettled([
+      api.getPolicy(), api.getTransactionSummary(), api.getTransactions(), api.getBlockedPurchases(),
+    ]).then(results => {
       if (!active) return;
-      const [p, s, h] = results;
+      const [p, s, h, blocked] = results;
       setPolicy(p.status === 'fulfilled' ? p.value : null);
       setSummary(s.status === 'fulfilled' ? s.value : null);
       setTransactions(h.status === 'fulfilled' ? (h.value.transactions || []).slice(0, 5) : []);
-      setErrors(results.filter(result => result.status === 'rejected' && result.reason.status !== 404).map(result => result.reason.message || 'Unable to load account data.'));
+      setBlockedHistory(blocked.status === 'fulfilled' ? blocked.value : null);
+      setErrors([p, s, h].filter(result => result.status === 'rejected' && result.reason.status !== 404).map(result => result.reason.message || 'Unable to load account data.'));
       setLoading(false);
     });
     return () => { active = false; };
@@ -111,6 +131,20 @@ export default function Dashboard({ user }) {
     <section className="studio-discover"><div className="studio-discover-copy"><span className="studio-eyebrow">02 / A LITTLE INTELLIGENCE GOES A LONG WAY</span><h2>WHAT’S ON<br/><em>YOUR MIND?</em></h2><p>Start with an idea. Let your assistant handle the search.</p></div><div className="studio-prompts">{['Find headphones within my budget','Help me find everyday essentials','Show me a thoughtful gift'].map((query,index) => <button key={query} onClick={() => navigate(`/assistant?query=${encodeURIComponent(query)}`)}><span>0{index+1}</span><strong>{query}</strong><ArrowUpRight size={22}/></button>)}</div></section>
 
     <section className="studio-activity"><header className="studio-section-header"><div><span className="studio-eyebrow">03 / YOUR TRAIL</span><h2>RECENT <em>MOVES.</em></h2></div><button className="studio-text-link" onClick={() => navigate('/transactions')}>VIEW ALL ACTIVITY <ArrowUpRight size={16}/></button></header><div className="studio-activity-panel"><div className="studio-activity-labels"><span>THE FIND</span><span>WHEN</span><span>AMOUNT</span><span>STATUS</span></div>{loading ? <p className="studio-activity-empty">Loading your activity…</p> : transactions.length ? transactions.map((item,index) => <div className="studio-activity-row" key={item.checkoutSessionId || index}><strong>{item.productName || 'Shopping payment'}</strong><span>{new Date(item.createdAt).toLocaleDateString()}</span><strong>{new Intl.NumberFormat('en-US',{style:'currency',currency:item.currency || currency}).format(Number(item.amount)||0)}</strong><span className={`studio-transaction-status ${item.status === 'CAPTURED' ? 'captured' : ''}`}>{item.status}</span></div>) : <div className="studio-activity-empty"><ReceiptText size={28}/><h3>A fresh start.</h3><p>Your shopping activity will appear here.</p><button className="studio-text-link" onClick={() => navigate('/assistant')}>DISCOVER YOUR FIRST FIND <ChevronRight size={15}/></button></div>}</div></section>
+    <section className="studio-activity studio-blocked-history" aria-labelledby="blocked-history-heading" aria-busy={loading}>
+      <div className="studio-activity-panel">
+        <h3 id="blocked-history-heading">Blocked purchase history</h3>
+        <p>See why recent checkouts were stopped and which offers were filtered out during searches.</p>
+        {loading ? <p role="status">Loading blocked history…</p> : blockedHistory ? (
+          <div className="studio-blocked-columns">
+            <BlockedHistoryList title="Blocked checkouts" entries={blockedHistory.checkoutAttempts}
+              empty="No blocked checkout attempts recorded." />
+            <BlockedHistoryList title="Offers filtered out in search" entries={blockedHistory.rejectedOffers}
+              empty="No rejected offers found in your search history." />
+          </div>
+        ) : <div role="alert">Blocked purchase history could not be loaded. <button className="text-button" onClick={refresh}>Retry</button></div>}
+      </div>
+    </section>
     <footer className="studio-dashboard-footer"><span>SPENDWISE / YOUR PERSONAL BUYING UNIVERSE</span><span>AI RECOMMENDS. YOU DECIDE.</span><a href="#top">BACK TO TOP ↑</a></footer>
   </div>;
 }

@@ -6,8 +6,9 @@ import "./Shopping.css";
 
 const defaults = { sort: "recommended", brand: "", merchant: "", max: "", status: "all" };
 const reviewCount = new Intl.NumberFormat();
+const comparisonLimit = 3;
 
-function ProductCard({ product, pick, added, busy, disabled, onAdd }) {
+function ProductCard({ product, pick, added, busy, disabled, onAdd, comparison }) {
   const eligible = product.eligible;
   const StatusIcon = eligible ? CheckCircle2 : XCircle;
 
@@ -50,6 +51,12 @@ function ProductCard({ product, pick, added, busy, disabled, onAdd }) {
           <StatusIcon size={15} />
           <span>{eligible ? "Within your active spending policy" : product.rejectionReason || "Rejected by your active spending policy"}</span>
         </div>
+        {eligible && comparison && <label className="shop-checkbox">
+          <input type="checkbox" checked={comparison.selected} disabled={comparison.full && !comparison.selected}
+            aria-label={`Compare ${product.productTitle} from ${product.merchantName}`}
+            onChange={() => comparison.toggle(product.candidateId)} />
+          Compare offer
+        </label>}
         {eligible && (added ? (
           <Link className="reset-button product-checkout-button" to="/cart"><CheckCircle2 size={16} /> In cart · View cart</Link>
         ) : (
@@ -61,6 +68,44 @@ function ProductCard({ product, pick, added, busy, disabled, onAdd }) {
         </a>}
       </div>
     </article>
+  );
+}
+
+const comparisonRows = [
+  ["Price", (offer) => `${offer.currencyCode} ${offer.price}`],
+  ["Brand", (offer) => offer.brand],
+  ["Retailer", (offer) => offer.merchantName],
+  ["Availability", () => "In stock at search"],
+  ["Rating", (offer) => offer.rating
+    && `${offer.rating.value} / 5 · ${reviewCount.format(offer.rating.count)} reviews`],
+  ["Product details", (offer) => offer.description],
+  ["Match to your request", (offer) => offer.recommendationExplanation],
+];
+
+function OfferComparison({ offers }) {
+  return (
+    <section className="offer-comparison" aria-labelledby="offer-comparison-heading">
+      <h3 id="offer-comparison-heading">Side-by-side comparison</h3>
+      <div className="comparison-scroll" tabIndex={0} role="region" aria-label="Scrollable offer comparison">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Offer detail</th>
+              {offers.map((offer) => <th scope="col" key={offer.candidateId}>
+                {offer.offerUrl ? <a href={offer.offerUrl} target="_blank" rel="noreferrer">{offer.productTitle}</a>
+                  : offer.productTitle}
+              </th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {comparisonRows.map(([label, value]) => <tr key={label}>
+              <th scope="row">{label}</th>
+              {offers.map((offer) => <td key={offer.candidateId}>{value(offer) || "Unavailable"}</td>)}
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -95,6 +140,8 @@ export default function Products({ userId }) {
   const [adding, setAdding] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showComparison, setShowComparison] = useState(false);
   const result = readResult(userId);
 
   useEffect(() => {
@@ -129,6 +176,13 @@ export default function Products({ userId }) {
     setFilters((current) => ({ ...current, [name]: value }));
   }
 
+  function toggleComparison(candidateId) {
+    setSelectedIds((current) => {
+      if (current.includes(candidateId)) return current.filter((id) => id !== candidateId);
+      return current.length < comparisonLimit ? [...current, candidateId] : current;
+    });
+  }
+
   if (!result) return (
     <section className="panel cart-list">
       <h2>Product discovery</h2>
@@ -149,6 +203,10 @@ export default function Products({ userId }) {
     && (filters.status === "all" || product.eligible === (filters.status === "eligible")))
     .sort((a, b) => compareOffers(a, b, filters.sort));
   const top = result.eligibleCandidates[0]?.candidateId;
+  const canCompare = result.eligibleCandidates.length >= 2;
+  const selectedOffers = selectedIds.map((id) => result.eligibleCandidates.find((offer) => offer.candidateId === id))
+    .filter(Boolean);
+  const comparisonVisible = showComparison && selectedOffers.length >= 2;
 
   return (
     <div className="product-results">
@@ -185,12 +243,31 @@ export default function Products({ userId }) {
             </select></label>
           </div>
         </div>
+        {canCompare && <div className="comparison-tools shop-heading">
+          <span className="shop-muted" role="status">Select 2 or 3 eligible offers to compare · {selectedOffers.length} selected</span>
+          <div className="shop-actions">
+            <button className="reset-button" type="button" disabled={selectedOffers.length < 2}
+              aria-expanded={comparisonVisible} onClick={() => setShowComparison(!comparisonVisible)}>
+              {comparisonVisible ? "Hide comparison" : "Compare selected"}
+            </button>
+            {selectedOffers.length > 0 && <button className="text-button" type="button" onClick={() => {
+              setSelectedIds([]);
+              setShowComparison(false);
+            }}>Clear selection</button>}
+          </div>
+        </div>}
+        {comparisonVisible && <OfferComparison offers={selectedOffers} />}
         <p className="shop-muted" role="status">{filtered.length} of {all.length} offers {status && ` · ${status}`}</p>
         {error && <div className="policy-message error-message" role="alert">{error}</div>}
         {filtered.length ? <div className="product-grid">
           {filtered.map((product) => (
             <ProductCard key={product.candidateId} product={product} added={saved?.includes(product.candidateId)}
               busy={adding === product.candidateId} disabled={!saved || Boolean(adding)} onAdd={add}
+              comparison={canCompare ? {
+                selected: selectedIds.includes(product.candidateId),
+                full: selectedOffers.length === comparisonLimit,
+                toggle: toggleComparison,
+              } : null}
               pick={product.candidateId === top && (result.aiRanked ? "AI top pick" : "Top catalog match")} />
           ))}
         </div> : <div className="empty-results"><ShieldCheck size={20} /><p>No offers match these filters.</p></div>}

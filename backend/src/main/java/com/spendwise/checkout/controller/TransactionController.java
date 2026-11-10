@@ -1,5 +1,6 @@
 package com.spendwise.checkout.controller;
 
+import com.spendwise.checkout.dto.BlockedPurchaseHistoryResponse;
 import com.spendwise.checkout.dto.TransactionHistoryResponse;
 import com.spendwise.checkout.dto.TransactionSummaryResponse;
 import com.spendwise.checkout.service.CheckoutService;
@@ -21,6 +22,11 @@ public class TransactionController {
     @GetMapping
     public TransactionHistoryResponse history(@AuthenticationPrincipal(expression = "name") String ownerId) {
         return checkoutService.history(ownerId);
+    }
+
+    @GetMapping("/blocked")
+    public BlockedPurchaseHistoryResponse blockedHistory(@AuthenticationPrincipal(expression = "name") String ownerId) {
+        return checkoutService.blockedHistory(ownerId);
     }
 
     @GetMapping("/summary")

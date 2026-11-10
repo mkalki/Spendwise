@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { CreditCard, MapPin, ShoppingCart, Trash2 } from "lucide-react";
 import { api } from "../services/api";
@@ -41,11 +41,28 @@ function CheckoutForm({ item, saved, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const submitting = useRef(false);
+  const checkoutScope = useRef(null);
+  const searchSessionId = item?.searchSessionId;
+  const candidateId = item?.candidateId;
+
+  useEffect(() => {
+    const scope = { active: true };
+    checkoutScope.current = scope;
+    return () => {
+      scope.active = false;
+      api.abandonCheckoutAttempt();
+    };
+  }, [searchSessionId, candidateId]);
 
   async function submit(event) {
     event.preventDefault();
+    if (submitting.current) return;
     const pay = event.nativeEvent.submitter?.value === "pay";
     const form = new FormData(event.currentTarget);
+    const scope = checkoutScope.current;
+    let redirecting = false;
+    submitting.current = true;
     setBusy(true);
     setError("");
     setNotice("");
@@ -54,19 +71,25 @@ function CheckoutForm({ item, saved, onSaved }) {
         shipping: readAddress(form, "shipping"),
         billing: sameAddress ? null : readAddress(form, "billing"),
       });
+      if (!scope?.active) return;
       onSaved(details);
       if (pay && item) {
-        const checkout = await api.createCheckout(item.searchSessionId, item.candidateId);
-        if (!checkout.approvalUrl) throw new Error("PayPal did not return an approval URL.");
+        const checkout = await api.createCheckout(searchSessionId, candidateId);
+        if (!scope.active) return;
         sessionStorage.setItem("spendwise_checkout_id", checkout.checkoutSessionId);
         window.location.assign(checkout.approvalUrl);
+        redirecting = true;
         return;
       }
       setNotice("Saved to your Spendwise account.");
     } catch (failure) {
-      setError(failure.message);
+      if (scope?.active) setError(failure.message);
+    } finally {
+      if (!redirecting) {
+        submitting.current = false;
+        setBusy(false);
+      }
     }
-    setBusy(false);
   }
 
   return (

@@ -2,6 +2,13 @@
 const API_BASE_URL = "/api";
 
 let csrfToken;
+let checkoutAttempt;
+
+const unresolvedCheckoutCodes = new Set([
+  "CHECKOUT_IN_PROGRESS",
+  "CHECKOUT_REQUIRES_RECONCILIATION",
+  "IDEMPOTENCY_KEY_REUSED",
+]);
 
 async function request(path, options = {}) {
   const method = options.method ?? "GET";
@@ -42,6 +49,7 @@ async function request(path, options = {}) {
       `Request failed: ${response.status}`
     );
     error.status = response.status;
+    error.code = data?.code;
     throw error;
   }
 
@@ -170,15 +178,44 @@ export const api = {
   },
 
   async createCheckout(searchSessionId, candidateId) {
-    return request("/v1/checkout-sessions", {
+    const body = JSON.stringify({ searchSessionId, candidateId });
+    if (checkoutAttempt?.body !== body) {
+      checkoutAttempt = {
+        body,
+        key: Array.from(crypto.getRandomValues(new Uint8Array(16)),
+          (byte) => byte.toString(16).padStart(2, "0")).join(""),
+      };
+    }
+    const attempt = checkoutAttempt;
+    attempt.pending ??= request("/v1/checkout-sessions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Idempotency-Key": Array.from(crypto.getRandomValues(new Uint8Array(16)),
-          (byte) => byte.toString(16).padStart(2, "0")).join(""),
+        "Idempotency-Key": attempt.key,
       },
-      body: JSON.stringify({ searchSessionId, candidateId }),
+      body,
+    }).then((checkout) => {
+      if (!checkout?.approvalUrl || !checkout.checkoutSessionId) {
+        throw new Error("Checkout did not return a PayPal approval URL and session ID. Try again.");
+      }
+      if (checkoutAttempt === attempt) checkoutAttempt = undefined;
+      return checkout;
+    }).catch((error) => {
+      const { status, code } = error;
+      const unresolved = status === 408 || status === 425 || status === 429
+        || (status === 409 && unresolvedCheckoutCodes.has(code));
+      if (checkoutAttempt === attempt && status >= 400 && status < 500 && !unresolved) {
+        checkoutAttempt = undefined;
+      }
+      throw error;
+    }).finally(() => {
+      attempt.pending = undefined;
     });
+    return attempt.pending;
+  },
+
+  abandonCheckoutAttempt() {
+    checkoutAttempt = undefined;
   },
 
   async captureCheckout(checkoutSessionId) {

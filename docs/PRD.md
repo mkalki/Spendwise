@@ -459,7 +459,7 @@ Characteristics:
 
 - One Spring Boot application.
 - One deployment unit.
-- One Supabase PostgreSQL database.
+- One PostgreSQL database running in Docker.
 - Feature-oriented modules.
 - Clear separation between domain logic and external API integrations.
 - Communication between internal modules through application services and interfaces.
@@ -527,7 +527,7 @@ Do not create additional modules without a business requirement.
 | Language | Java 21 |
 | Framework | Spring Boot 3.5.x |
 | Build | Maven |
-| Database | Supabase PostgreSQL |
+| Database | PostgreSQL in Docker |
 | ORM | Spring Data JPA |
 | Migrations | Flyway |
 | AI integration | Spring AI 1.1.x |
@@ -548,7 +548,7 @@ Keep Spring Boot and Spring AI versions compatible. Do not perform unrelated fra
 
 # 6. Database Design
 
-Use Supabase PostgreSQL as the primary database.
+Use PostgreSQL running in Docker as the primary database.
 
 Required domain entities:
 
@@ -664,7 +664,7 @@ Suggested fields:
 - Use `BigDecimal` for monetary values.
 - Use UTC timestamps for persisted events and the configured policy time zone for weekly calculations.
 
-Preserve the existing Supabase connection configuration.
+Preserve the existing Docker PostgreSQL connection configuration.
 
 ---
 
@@ -914,7 +914,7 @@ Mandatory requirements:
 11. Avoid logging credentials, tokens or unnecessary personal information.
 12. Use HTTPS/TLS for external service and database communication.
 
-Preserve the working Docker and Supabase configuration. Do not replace the cloud database with a local database without an explicit reason.
+Use the existing Docker Compose PostgreSQL deployment and preserve its persistent volume and environment-based connection configuration.
 
 ---
 
@@ -1032,7 +1032,7 @@ All team members must follow agreed REST API contracts and use separate Git bran
 ## Milestone 1 — Foundation
 
 - Existing Spring Boot setup retained.
-- Supabase connection verified.
+- Docker PostgreSQL connection verified.
 - Docker configuration verified.
 - Channel3 API access verified.
 - PayPal Sandbox access verified.
@@ -1144,7 +1144,7 @@ Treat this PRD as the product source of truth.
 
 1. Inspect the existing repository.
 2. Read `README.md`, `AGENTS.md`, `QWEN.md`, `pom.xml` and Docker configuration where present.
-3. Inspect the existing Supabase configuration.
+3. Inspect the existing Docker Compose PostgreSQL configuration.
 4. Inspect current Flyway migrations.
 5. Understand the existing health endpoint and application configuration.
 6. Do not recreate or overwrite existing project setup.
@@ -1167,7 +1167,7 @@ Treat this PRD as the product source of truth.
 - Write unit tests for business logic.
 - Add integration tests for important workflows.
 - Preserve existing Docker configuration.
-- Preserve the working Supabase connection.
+- Preserve the existing Docker PostgreSQL connection.
 - Do not expose API credentials.
 - Do not let AI decide whether a payment is permitted.
 - Do not trust prices or payment status sent by the frontend.
@@ -1216,7 +1216,6 @@ Any implementation that violates this principle is incorrect.
 - Channel3 developer documentation: https://www.trychannel3.com/developers
 - Channel3 API reference: https://docs.trychannel3.com/
 - Spring AI: https://docs.spring.io/spring-ai/reference/1.1/
-- Supabase Spring Boot integration: https://supabase.com/docs/guides/getting-started/quickstarts/spring-boot
 - Springdoc OpenAPI: https://springdoc.org/
 - APIMatic: https://docs.apimatic.io/
 

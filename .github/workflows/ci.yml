@@ -36,3 +36,35 @@ jobs:
 
       - name: Verify backend
         run: mvn -B -f backend/pom.xml verify
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Test frontend
+        run: npm test
+        working-directory: frontend
+
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Validate OpenAPI document
+        run: python -c "import json; from pathlib import Path; json.loads(Path('openapi/spendwise-openapi.json').read_text(encoding='utf-8'))"
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build backend Docker image
+        run: docker compose build backend

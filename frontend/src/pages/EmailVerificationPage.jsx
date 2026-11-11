@@ -7,8 +7,9 @@ import "./EmailVerificationPage.css";
 export default function EmailVerificationPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
-  const [state, setState] = useState(token ? "verifying" : "invalid");
-  const [email, setEmail] = useState("");
+  const signupEmail = searchParams.get("email") || "";
+  const [state, setState] = useState(token ? "verifying" : signupEmail ? "pending" : "invalid");
+  const [email, setEmail] = useState(signupEmail);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -49,6 +50,17 @@ export default function EmailVerificationPage() {
           <p>Your address is confirmed. You can now sign in to Spendwise.</p>
           <a className="save-button" href="/?auth=login">Continue to sign in <ArrowRight size={16} /></a>
         </>}
+        {state === "pending" && <>
+          <h1>Verify your email</h1>
+          <p>A verification link was requested for <strong>{email}</strong>. Check your inbox and spam folder.</p>
+          <form className="verify-email-resend" onSubmit={resend}>
+            <button className="save-button" type="submit" disabled={sending}>
+              {sending ? "Sending…" : "Resend verification email"}
+            </button>
+          </form>
+          {message && <p role="status">{message}</p>}
+          <p>Already verified? <a className="verify-email-login" href="/?auth=login">Log in</a></p>
+        </>}
         {state === "invalid" && <>
           <h1>Verification link unavailable</h1>
           <p>{message || "The link may have expired or already been used. Request a new one below."}</p>
@@ -63,7 +75,7 @@ export default function EmailVerificationPage() {
             </button>
           </form>
           {message && <p role="status">{message}</p>}
-          <a className="verify-email-login" href="/?auth=login">Return to sign in</a>
+          <p><a className="verify-email-login" href="/?auth=login">Return to sign in</a></p>
         </>}
       </section>
     </main>

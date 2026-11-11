@@ -2,6 +2,7 @@ package com.spendwise.auth.integration;
 
 import com.spendwise.common.config.TransientHttpRetry;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -17,6 +18,7 @@ public class ResendEmailClient {
     private final String apiKey;
     private final String fromAddress;
 
+    @Autowired
     public ResendEmailClient(
             ClientHttpRequestFactory requestFactory,
             @Value("${spendwise.email.resend.api-key:}") String apiKey,

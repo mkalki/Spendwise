@@ -12,7 +12,7 @@ import {
   UserRound,
   LogOut,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../services/api";
 
@@ -53,12 +53,25 @@ const menuItems = [
 export default function Sidebar({ user, onLogout }) {
   const [membership, setMembership] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef(null);
   useEffect(() => { api.getProMembership().then(setMembership).catch(() => setMembership({ pro: false })); }, [user?.id]);
+  useEffect(() => {
+    function closeOutside(event) {
+      if (!profileRef.current?.contains(event.target)) setProfileOpen(false);
+    }
+    function closeOnEscape(event) { if (event.key === "Escape") setProfileOpen(false); }
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
   const tier = membership?.pro ? "Pro" : "Free";
   return (
     <aside className="sidebar" aria-label="Primary navigation">
 
-      <div className="brand">
+      <Link className="brand" to="/" aria-label="Spendwise home">
 
         <div className="brand-icon">
           <BrandMark />
@@ -69,7 +82,7 @@ export default function Sidebar({ user, onLogout }) {
           <span>Protected buying studio</span>
         </div>
 
-      </div>
+      </Link>
 
       <p className="menu-label">WORKSPACE</p>
 
@@ -104,11 +117,11 @@ export default function Sidebar({ user, onLogout }) {
 
       </nav>
 
-      <div className="sidebar-profile">
+      <div className="sidebar-profile" ref={profileRef}>
         {profileOpen && <div className="sidebar-profile-menu" role="menu">
           <strong>{user?.displayName || user?.name || user?.username || "Spendwise user"}</strong>
           <span>{user?.email || ""}</span>
-          <Link to="/policies" onClick={() => setProfileOpen(false)}><UserRound size={14} /> Spending profile</Link>
+          <Link to="/profile" onClick={() => setProfileOpen(false)}><UserRound size={14} /> Edit profile</Link>
           <Link to="/pro" onClick={() => setProfileOpen(false)}><Sparkles size={14} /> Manage Pro</Link>
           <button type="button" onClick={onLogout}><LogOut size={14} /> Sign out</button>
         </div>}

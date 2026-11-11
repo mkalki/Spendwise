@@ -68,12 +68,21 @@ public class AccountService {
         return toResponse(account);
     }
 
+    @Transactional
+    public AuthResponse updateProfile(String userId, String name) {
+        UserAccount account = repository.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "ACCOUNT_NOT_FOUND",
+                        "The signed-in account no longer exists."));
+        account.updateDisplayName(name.strip());
+        return toResponse(account);
+    }
+
     public AuthResponse toResponse(UserAccount account) {
         return new AuthResponse(
                 account.getId(),
                 account.getEmail(),
                 account.getUsername(),
-                account.getDisplayName(),
+                account.getProfileName() == null ? account.getDisplayName() : account.getProfileName(),
                 account.getPictureUrl(),
                 account.getProvider().name());
     }

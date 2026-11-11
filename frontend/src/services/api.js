@@ -126,6 +126,14 @@ export const api = {
     return request("/auth/me");
   },
 
+  async updateProfile(name) {
+    return request("/auth/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  },
+
   async logout() {
     await request("/auth/logout", { method: "POST" });
     csrfToken = undefined;

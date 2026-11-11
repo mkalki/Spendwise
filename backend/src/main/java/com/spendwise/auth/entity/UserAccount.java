@@ -29,6 +29,9 @@ public class UserAccount {
     @Column(name = "display_name", length = 120)
     private String displayName;
 
+    @Column(name = "profile_name", length = 120)
+    private String profileName;
+
     @Column(name = "picture_url", columnDefinition = "text")
     private String pictureUrl;
 
@@ -82,6 +85,8 @@ public class UserAccount {
         this.emailVerified = true;
     }
 
+    public void updateDisplayName(String displayName) { this.profileName = displayName; }
+
     public void linkGoogleIdentity(String subject, String email, String displayName, String pictureUrl) {
         this.googleSubject = subject;
         this.username = null;
@@ -101,6 +106,7 @@ public class UserAccount {
     public String getEmail() { return email; }
     public String getUsername() { return username; }
     public String getDisplayName() { return displayName; }
+    public String getProfileName() { return profileName; }
     public String getPictureUrl() { return pictureUrl; }
     public String getGoogleSubject() { return googleSubject; }
     public Provider getProvider() { return provider; }

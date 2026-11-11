@@ -1,6 +1,7 @@
 package com.spendwise.auth.controller;
 
 import com.spendwise.auth.dto.AuthResponse;
+import com.spendwise.auth.dto.UpdateProfileRequest;
 import com.spendwise.auth.service.AccountService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,6 +13,9 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import jakarta.validation.Valid;
 
 @Tag(name = "Authentication", description = "Google registration, sign-in, session, and CSRF APIs.")
 @RestController
@@ -45,6 +49,13 @@ public class AuthController {
     @Operation(summary = "Get the signed-in account")
     public AuthResponse currentUser(@AuthenticationPrincipal(expression = "name") String userId) {
         return accountService.profile(userId);
+    }
+
+    @PatchMapping("/profile")
+    @Operation(summary = "Update the signed-in user's Spendwise profile")
+    public AuthResponse updateProfile(@AuthenticationPrincipal(expression = "name") String userId,
+            @Valid @RequestBody UpdateProfileRequest request) {
+        return accountService.updateProfile(userId, request.name());
     }
 
     private ResponseEntity<Void> googleAuthorizationRedirect() {

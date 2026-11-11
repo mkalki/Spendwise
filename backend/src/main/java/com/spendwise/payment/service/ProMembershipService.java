@@ -6,6 +6,10 @@ import com.spendwise.payment.dto.PaymentResponse;
 import com.spendwise.payment.dto.ProMembershipResponse;
 import com.spendwise.payment.entity.PaymentTransaction;
 import com.spendwise.payment.integration.PaymentGateway;
+import com.spendwise.payment.integration.PaymentProviderException;
+import com.spendwise.payment.integration.PaymentProviderNotConfiguredException;
+import com.spendwise.payment.integration.PaymentProviderRejectedException;
+import com.spendwise.payment.integration.PaymentProviderTimeoutException;
 import com.spendwise.payment.repository.PaymentTransactionRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -65,7 +69,22 @@ public class ProMembershipService {
             throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_REUSED", "The checkout key was used for another plan.");
         }
         if (tx.getPaypalOrderId() != null) return PaymentResponse.from(tx);
-        PaymentGateway.OrderCreation order = paypal.createOrder(tx.getId(), tx.getAmount(), "USD");
+        PaymentGateway.OrderCreation order;
+        try {
+            order = paypal.createOrder(tx.getId(), tx.getAmount(), "USD");
+        } catch (PaymentProviderNotConfiguredException exception) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "PAYMENT_PROVIDER_NOT_CONFIGURED",
+                    "Spendwise Pro checkout is unavailable because PayPal Sandbox is not configured.");
+        } catch (PaymentProviderTimeoutException exception) {
+            throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "PAYMENT_PROVIDER_TIMEOUT",
+                    "PayPal did not confirm Pro checkout creation. Please retry shortly.");
+        } catch (PaymentProviderRejectedException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_PROVIDER_ERROR",
+                    "PayPal rejected the Pro checkout request. Check the Sandbox app credentials and try again.");
+        } catch (PaymentProviderException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PAYMENT_ORDER_UNCONFIRMED",
+                    "PayPal did not confirm Pro checkout creation. Please retry shortly.");
+        }
         tx.paypalOrderCreated(order.orderId(), order.approvalUrl());
         tx = transactions.save(tx);
         audit.record(ownerId, "PRO_CHECKOUT_CREATED", java.util.Map.of("checkoutId", tx.getId(), "plan", planCode));

@@ -151,8 +151,6 @@ export default function Products({ userId }) {
   const [filters, setFilters] = useState(defaults);
   const [saved, setSaved] = useState(null);
   const [result, setResult] = useState(() => readResult(userId));
-  const [recommendationStatus, setRecommendationStatus] = useState("");
-  const [recommendationAttempt, setRecommendationAttempt] = useState(0);
   const [adding, setAdding] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -160,13 +158,8 @@ export default function Products({ userId }) {
   const [showComparison, setShowComparison] = useState(false);
 
   useEffect(() => {
-    setResult(readResult(userId));
-  }, [userId]);
-
-  useEffect(() => {
     if (!result?.searchSessionId || result.recommendationsLoaded || result.recommendationError) return;
     let active = true;
-    setRecommendationStatus("Generating AI explanations…");
     getRecommendationsOnce(result.searchSessionId).then((recommendations) => {
       if (!active) return;
       setResult((current) => {
@@ -195,7 +188,6 @@ export default function Products({ userId }) {
         sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
         return updated;
       });
-      setRecommendationStatus("");
     }).catch(() => {
       if (!active) return;
       setResult((current) => {
@@ -204,10 +196,9 @@ export default function Products({ userId }) {
         sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
         return updated;
       });
-      setRecommendationStatus("AI explanations are unavailable. Your policy-checked offers are ready.");
     });
     return () => { active = false; };
-  }, [userId, result?.searchSessionId, recommendationAttempt]);
+  }, [userId, result?.searchSessionId, result?.recommendationsLoaded, result?.recommendationError]);
 
   function retryRecommendations() {
     setResult((current) => {
@@ -216,7 +207,6 @@ export default function Products({ userId }) {
       sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
       return updated;
     });
-    setRecommendationAttempt((attempt) => attempt + 1);
   }
 
   useEffect(() => {
@@ -291,8 +281,11 @@ export default function Products({ userId }) {
             <span className="eyebrow">POLICY-AWARE DISCOVERY</span>
             <h2>{result.intent?.normalizedQuery || "Search results"}</h2>
             <p className="shop-muted">{result.recommendation || "Results checked against your spending policy."}</p>
-            {recommendationStatus && <p className="shop-muted" role="status">{recommendationStatus}
-              {result.recommendationError && <> <button type="button" className="text-button" onClick={retryRecommendations}>Retry</button></>}
+            {!result.recommendationsLoaded && !result.recommendationError &&
+              <p className="shop-muted" role="status">Generating AI explanations…</p>}
+            {result.recommendationError && <p className="shop-muted" role="status">
+              AI explanations are unavailable. Your policy-checked offers are ready.
+              <button type="button" className="text-button" onClick={retryRecommendations}>Retry</button>
             </p>}
           </div>
           <Link className="reset-button" to="/cart"><ShoppingCart size={16} /> View cart</Link>

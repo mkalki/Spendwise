@@ -5,6 +5,26 @@ import { ArrowUpRight, Search, Send, Sparkles, ShieldCheck } from "lucide-react"
 import { api } from "../services/api";
 import "./Shopping.css";
 
+const promptPool = [
+  "Find a lightweight laptop for coding and college.",
+  "Show me noise-cancelling headphones for travel.",
+  "Compare smartphones with great cameras and battery life.",
+  "Find a quiet mechanical keyboard for shared spaces.",
+  "Help me choose an ergonomic chair for a home office.",
+  "Find a monitor for design work and everyday use.",
+  "Show me durable carry-on backpacks for weekend trips.",
+  "Find running shoes for beginners with wide feet.",
+  "Compare air fryers that work well in a small kitchen.",
+  "Find a smartwatch for fitness tracking and long battery life.",
+  "Show me reliable wireless earbuds for work calls.",
+  "Find a compact Bluetooth speaker for outdoor use.",
+];
+
+function choosePrompts() {
+  const shuffled = [...promptPool].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 3 + Math.floor(Math.random() * 2));
+}
+
 function IntentReview({ result }) {
   const { intent, eligibleCandidates, rejectedCandidates } = result;
   const offerCount = eligibleCandidates.length + rejectedCandidates.length;
@@ -37,12 +57,7 @@ export default function ShoppingAssistant({ userId }) {
   const [errorMessage, setErrorMessage] = useState("");
   const [submittedMessage, setSubmittedMessage] = useState("");
   const [result, setResult] = useState(null);
-  const suggestions = [
-    "Find the best laptop under ₹60,000.",
-    "Find wireless headphones for studying.",
-    "Compare smartphones under ₹25,000.",
-    "Find a budget-friendly mechanical keyboard.",
-  ];
+  const [suggestions] = useState(choosePrompts);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -112,6 +127,12 @@ export default function ShoppingAssistant({ userId }) {
               aria-label="What would you like to shop for?"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
               placeholder="Describe what you want to find..."
               disabled={searching}
               rows="1"

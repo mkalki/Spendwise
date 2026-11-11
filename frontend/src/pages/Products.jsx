@@ -7,6 +7,19 @@ import "./Shopping.css";
 const defaults = { sort: "recommended", brand: "", merchant: "", max: "", status: "all" };
 const reviewCount = new Intl.NumberFormat();
 const comparisonLimit = 3;
+const pendingRecommendations = new Map();
+
+function getRecommendationsOnce(searchSessionId) {
+  const pending = pendingRecommendations.get(searchSessionId);
+  if (pending) return pending;
+  const request = api.getShoppingRecommendations(searchSessionId);
+  pendingRecommendations.set(searchSessionId, request);
+  request.then(
+    () => { if (pendingRecommendations.get(searchSessionId) === request) pendingRecommendations.delete(searchSessionId); },
+    () => { if (pendingRecommendations.get(searchSessionId) === request) pendingRecommendations.delete(searchSessionId); },
+  );
+  return request;
+}
 
 function ProductCard({ product, pick, added, busy, disabled, onAdd, comparison }) {
   const eligible = product.eligible;
@@ -137,12 +150,64 @@ function compareOffers(a, b, sort) {
 export default function Products({ userId }) {
   const [filters, setFilters] = useState(defaults);
   const [saved, setSaved] = useState(null);
+  const [result, setResult] = useState(() => readResult(userId));
   const [adding, setAdding] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
   const [showComparison, setShowComparison] = useState(false);
-  const result = readResult(userId);
+
+  useEffect(() => {
+    if (!result?.searchSessionId || result.recommendationsLoaded || result.recommendationError) return;
+    let active = true;
+    getRecommendationsOnce(result.searchSessionId).then((recommendations) => {
+      if (!active) return;
+      setResult((current) => {
+        if (!current || current.searchSessionId !== result.searchSessionId) return current;
+        const byId = new Map(current.eligibleCandidates.map((candidate) => [candidate.candidateId, candidate]));
+        for (const [candidateId, explanation] of Object.entries(recommendations.explanations || {})) {
+          const candidate = byId.get(candidateId);
+          if (candidate) byId.set(candidateId, { ...candidate, recommendationExplanation: explanation });
+        }
+        const ranked = (recommendations.rankedCandidateIds || []).map((id) => byId.get(id)).filter(Boolean);
+        const rankedIds = new Set(ranked.map(({ candidateId }) => candidateId));
+        const eligibleCandidates = [...ranked, ...current.eligibleCandidates
+          .filter(({ candidateId }) => !rankedIds.has(candidateId))
+          .map(({ candidateId }) => byId.get(candidateId))];
+        const updated = {
+          ...current,
+          eligibleCandidates,
+          recommendationsLoaded: true,
+          recommendationError: false,
+          aiRanked: Boolean(recommendations.aiRanked),
+          comparisonSummary: recommendations.summary || null,
+          recommendation: recommendations.summary || (recommendations.aiRanked
+            ? "Gemini compared eligible offers using your request and saved preferences."
+            : "AI recommendations are unavailable; showing the best catalog matches."),
+        };
+        sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
+        return updated;
+      });
+    }).catch(() => {
+      if (!active) return;
+      setResult((current) => {
+        if (!current || current.searchSessionId !== result.searchSessionId) return current;
+        const updated = { ...current, recommendationError: true };
+        sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
+        return updated;
+      });
+    });
+    return () => { active = false; };
+  }, [userId, result?.searchSessionId, result?.recommendationsLoaded, result?.recommendationError]);
+
+  function retryRecommendations() {
+    setResult((current) => {
+      if (!current) return current;
+      const updated = { ...current, recommendationError: false, recommendationsLoaded: false };
+      sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
+      return updated;
+    });
+  }
 
   useEffect(() => {
     let active = true;
@@ -216,6 +281,12 @@ export default function Products({ userId }) {
             <span className="eyebrow">POLICY-AWARE DISCOVERY</span>
             <h2>{result.intent?.normalizedQuery || "Search results"}</h2>
             <p className="shop-muted">{result.recommendation || "Results checked against your spending policy."}</p>
+            {!result.recommendationsLoaded && !result.recommendationError &&
+              <p className="shop-muted" role="status">Generating AI explanations…</p>}
+            {result.recommendationError && <p className="shop-muted" role="status">
+              AI explanations are unavailable. Your policy-checked offers are ready.
+              <button type="button" className="text-button" onClick={retryRecommendations}>Retry</button>
+            </p>}
           </div>
           <Link className="reset-button" to="/cart"><ShoppingCart size={16} /> View cart</Link>
         </div>

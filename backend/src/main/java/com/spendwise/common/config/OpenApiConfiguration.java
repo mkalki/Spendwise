@@ -20,7 +20,7 @@ public class OpenApiConfiguration {
                         .title("Spendwise API")
                         .version("v1")
                         .description("""
-                                APIs for account signup and login, managing spending policies, searching products,
+                                APIs for Google account registration and sign-in, managing spending policies, searching products,
                                 generating Gemini responses, creating and verifying PayPal Sandbox payments, and viewing transactions. Browser API calls use
                                 an authenticated HTTP session. State-changing requests also require the CSRF token from
                                 GET /api/auth/csrf in the X-XSRF-TOKEN header.
@@ -30,7 +30,7 @@ public class OpenApiConfiguration {
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.COOKIE)
                                 .name("JSESSIONID")
-                                .description("Authenticated Spendwise session cookie (password or Google sign-in)."))
+                                .description("Authenticated Spendwise session cookie (Google sign-in)."))
                         .addSecuritySchemes("CsrfToken", new SecurityScheme()
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)
@@ -45,9 +45,7 @@ public class OpenApiConfiguration {
                 return;
             }
             pathItem.readOperationsMap().forEach((method, operation) -> {
-                boolean publicAuth = path.equals("/api/auth/signup")
-                        || path.equals("/api/auth/login")
-                        || path.equals("/api/auth/google/login")
+                boolean publicAuth = path.equals("/api/auth/google/login")
                         || path.equals("/api/auth/google/signup");
                 if (path.equals("/api/webhooks/paypal")) {
                     return;

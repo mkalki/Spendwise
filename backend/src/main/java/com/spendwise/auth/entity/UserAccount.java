@@ -69,11 +69,6 @@ public class UserAccount {
         this.emailVerified = emailVerified;
     }
 
-    public static UserAccount passwordAccount(
-            String id, String email, String username, String passwordHash) {
-        return new UserAccount(id, email, username, passwordHash, username, null, null, Provider.PASSWORD, false);
-    }
-
     public static UserAccount googleAccount(
             String subject, String email, String displayName, String pictureUrl) {
         return new UserAccount(
@@ -87,8 +82,12 @@ public class UserAccount {
         this.emailVerified = true;
     }
 
-    public void verifyEmail() {
-        this.emailVerified = true;
+    public void linkGoogleIdentity(String subject, String email, String displayName, String pictureUrl) {
+        this.googleSubject = subject;
+        this.username = null;
+        this.passwordHash = null;
+        this.provider = Provider.GOOGLE;
+        updateGoogleProfile(email, displayName, pictureUrl);
     }
 
     @PrePersist
@@ -101,7 +100,6 @@ public class UserAccount {
     public String getId() { return id; }
     public String getEmail() { return email; }
     public String getUsername() { return username; }
-    public String getPasswordHash() { return passwordHash; }
     public String getDisplayName() { return displayName; }
     public String getPictureUrl() { return pictureUrl; }
     public String getGoogleSubject() { return googleSubject; }

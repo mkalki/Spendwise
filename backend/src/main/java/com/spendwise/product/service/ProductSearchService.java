@@ -15,6 +15,7 @@ import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.product.dto.ShoppingSearchRequest;
 import com.spendwise.product.dto.ShoppingSearchFilters;
 import com.spendwise.product.dto.ShoppingSearchResponse;
+import com.spendwise.product.dto.ShoppingRecommendationsResponse;
 import com.spendwise.product.dto.ShoppingPreferencesResponse;
 import com.spendwise.product.dto.ShoppingSortBy;
 import com.spendwise.product.entity.ProductCandidate;
@@ -160,17 +161,10 @@ public class ProductSearchService {
         List<ProductCandidate> eligibleCandidates = candidates.stream()
                 .filter(ProductCandidate::isEligible)
                 .toList();
-        CandidateRanking ranking = keywordFallback || eligibleCandidates.isEmpty()
-                ? CandidateRanking.unavailable(eligibleCandidates)
-                : explainEligibleCandidates(request.message(), savedPreferences, eligibleCandidates, productsById);
-        boolean aiRankingApplied = false;
         if (request.sortBy() == ShoppingSortBy.LOWEST_PRICE) {
             eligibleCandidates = eligibleCandidates.stream()
                     .sorted(Comparator.comparing(ProductCandidate::getListedPrice))
                     .toList();
-        } else if (request.sortBy() == ShoppingSortBy.AI_RECOMMENDED && !eligibleCandidates.isEmpty()) {
-            eligibleCandidates = ranking.candidates();
-            aiRankingApplied = ranking.applied();
         }
 
         List<ProductCandidate> finalEligibleCandidates = eligibleCandidates;
@@ -192,7 +186,7 @@ public class ProductSearchService {
         });
 
         List<ShoppingSearchResponse.ProductCandidateView> eligible = finalEligibleCandidates.stream()
-                .map(candidate -> toView(candidate, ranking.explanations().get(candidate.getId()),
+                .map(candidate -> toView(candidate, null,
                         productsById.get(candidate.getChannel3ProductId())))
                 .toList();
         List<ShoppingSearchResponse.ProductCandidateView> rejected = candidates.stream()
@@ -201,10 +195,7 @@ public class ProductSearchService {
                 .toList();
         String recommendation = eligible.isEmpty() ? null : switch (request.sortBy()) {
             case BEST_MATCH -> "Channel3's best-matching eligible results for your search.";
-            case AI_RECOMMENDED -> aiRankingApplied
-                    ? java.util.Objects.requireNonNullElse(ranking.summary(),
-                            "Gemini compared eligible products using your request and saved preferences. Product facts are from Channel3.")
-                    : "Gemini ranking was unavailable; showing Channel3's best-matching eligible results.";
+            case AI_RECOMMENDED -> "Showing policy-checked offers. Generating AI recommendations…";
             case LOWEST_PRICE -> "Lowest-priced eligible offer: " + eligible.getFirst().productTitle()
                     + " from " + eligible.getFirst().merchantName() + ".";
         };
@@ -230,9 +221,26 @@ public class ProductSearchService {
                 eligible,
                 rejected,
                 recommendation,
-                ranking.summary(),
+                null,
                 request.sortBy(),
-                aiRankingApplied);
+                false);
+    }
+
+    public ShoppingRecommendationsResponse recommendations(String ownerId, UUID sessionId) {
+        ShoppingSearchSession session = sessionRepository.findByIdAndOwnerId(sessionId, ownerId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SHOPPING_SEARCH_NOT_FOUND",
+                        "Shopping search was not found."));
+        List<ProductCandidate> candidates = candidateRepository.findEligibleBySearchSession(sessionId, ownerId);
+        if (candidates.isEmpty()) {
+            return new ShoppingRecommendationsResponse(List.of(), Map.of(), null, false);
+        }
+        geminiRateLimiter.acquire(ownerId);
+        ShoppingPreferencesResponse preferences = profileService.getPreferences(ownerId);
+        if (preferences == null) preferences = ShoppingPreferencesResponse.empty();
+        CandidateRanking ranking = explainEligibleCandidates(session.getOriginalQuery(), preferences, candidates, Map.of());
+        return new ShoppingRecommendationsResponse(
+                ranking.candidates().stream().map(ProductCandidate::getId).toList(),
+                ranking.explanations(), ranking.summary(), ranking.applied());
     }
 
     private CandidateRanking explainEligibleCandidates(
@@ -245,7 +253,8 @@ public class ProductSearchService {
                         candidate.getId(), candidate.getProductTitle(), candidate.getBrand(),
                         candidate.getMerchantName(), candidate.getListedPrice() == null
                                 ? null : candidate.getListedPrice().toPlainString(),
-                        candidate.getCurrencyCode(), rating(productsById.get(candidate.getChannel3ProductId()))))
+                        candidate.getCurrencyCode(), rating(candidate,
+                                productsById.get(candidate.getChannel3ProductId()))))
                 .toList();
         try {
             GeminiRecommendationResult result = geminiService.explainShoppingCandidates(
@@ -369,7 +378,7 @@ public class ProductSearchService {
             if (!offers.isArray() || offers.isEmpty()) {
                 candidates.add(toCandidate(
                         session, productId, title, brand, imageUrl, null, null, null, null,
-                        "Product has no retailer offer."));
+                        "Product has no retailer offer.", rating(product)));
                 continue;
             }
             for (JsonNode offer : offers) {
@@ -398,7 +407,7 @@ public class ProductSearchService {
                         merchant, offerUrl, policy, effectiveMax);
                 candidates.add(toCandidate(
                         session, productId, title, brand, imageUrl, merchant, offerUrl,
-                        price, currencyCode, rejection));
+                        price, currencyCode, rejection, rating(product)));
             }
         }
         return candidates;
@@ -414,7 +423,8 @@ public class ProductSearchService {
             String offerUrl,
             BigDecimal price,
             String currencyCode,
-            String rejection) {
+            String rejection,
+            ShoppingSearchResponse.ProductRating rating) {
         return new ProductCandidate(
                 UUID.randomUUID(),
                 session,
@@ -427,7 +437,10 @@ public class ProductSearchService {
                 price,
                 currencyCode,
                 rejection == null,
-                rejection);
+                rejection,
+                rating == null ? null : rating.value(),
+                rating == null ? null : rating.count(),
+                rating == null ? null : rating.sourceCount());
     }
 
     private String firstImage(JsonNode images) {
@@ -465,6 +478,9 @@ public class ProductSearchService {
     }
 
     private ShoppingSearchResponse.ProductRating rating(JsonNode product) {
+        if (product == null || product.isNull()) {
+            return null;
+        }
         JsonNode ratings = product.path("ratings");
         BigDecimal value = decimal(ratings.path("value"));
         JsonNode count = ratings.path("count");
@@ -474,6 +490,18 @@ public class ProductSearchService {
         }
         int sources = Math.max(0, ratings.path("source_count").asInt());
         return new ShoppingSearchResponse.ProductRating(value, count.asLong(), sources);
+    }
+
+    private ShoppingSearchResponse.ProductRating rating(ProductCandidate candidate, JsonNode product) {
+        ShoppingSearchResponse.ProductRating productRating = rating(product);
+        if (productRating != null) {
+            return productRating;
+        }
+        if (candidate.getRatingValue() == null || candidate.getRatingCount() == null) {
+            return null;
+        }
+        return new ShoppingSearchResponse.ProductRating(candidate.getRatingValue(), candidate.getRatingCount(),
+                candidate.getRatingSourceCount() == null ? 0 : candidate.getRatingSourceCount());
     }
 
     private ShoppingSearchResponse.ProductCandidateView toView(

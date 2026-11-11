@@ -1,9 +1,0 @@
-.verify-email-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; color: #f5effa; }
-.verify-email-card { width: min(100%, 520px); display: grid; justify-items: start; gap: 16px; padding: clamp(24px, 5vw, 42px); background: #11111df2; border: 1px solid #ffffff37; box-shadow: 0 28px 90px #000a; }
-.verify-email-card > svg { color: #ff829d; }
-.verify-email-card h1, .verify-email-card p { margin: 0; }
-.verify-email-card p { color: #c7bbd2; line-height: 1.6; overflow-wrap: anywhere; }
-.verify-email-card .save-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; text-decoration: none; }
-.verify-email-resend { width: 100%; display: grid; gap: 14px; }
-.verify-email-resend input { width: 100%; }
-.verify-email-login { color: #ff9cb3; }

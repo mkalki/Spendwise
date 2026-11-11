@@ -5,49 +5,6 @@ Google session endpoints and health retain their existing `/api` paths.
 
 ## Authentication and browser requests
 
-### Password signup and login
-
-Before a state-changing auth request, fetch `GET /api/auth/csrf`, then include
-the returned header and token. The session cookie must be retained by the
-browser/client.
-
-`POST /api/auth/signup` creates a pending password account and sends a
-verification email:
-
-```json
-{
-  "email": "shopper@example.com",
-  "username": "shopper1",
-  "password": "a-long-password"
-}
-```
-
-Email and username are normalized to lowercase. Usernames must be 3–32
-characters and use letters, numbers, `.`, `_` or `-`. Passwords must contain at
-least 12 characters. A successful response is `201 Created` with the email and
-a message to check the inbox; it does not create a session. Duplicate email or
-username returns `409 Conflict`. Resend delivery configuration uses
-`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `FRONTEND_ORIGIN`.
-
-The verification link opens the frontend at `/verify-email?token=...`. The
-frontend posts the token to `POST /api/auth/verify-email`; valid links expire
-after 24 hours and can be used once. `POST /api/auth/verification/resend`
-accepts an email and returns the same `202 Accepted` message whether or not a
-pending account exists. Resends are limited to one per minute for each account.
-
-`POST /api/auth/login` accepts either the registered email or username:
-
-```json
-{
-  "identifier": "shopper1",
-  "password": "a-long-password"
-}
-```
-
-Successful login returns `200 OK` and starts a session. Invalid credentials
-return `401 Unauthorized`; a password account whose email is not verified
-returns `403 Forbidden` with `EMAIL_NOT_VERIFIED`.
-
 ### Google login and signup
 
 Begin Google OAuth by navigating to
@@ -56,9 +13,9 @@ Google verifies the identity; a verified email creates a Spendwise account on
 first sign-in, and later sign-ins use that account. The standard Spring route
 `/oauth2/authorization/google` is also available. On success, the server
 establishes an HTTP session and redirects to the configured frontend callback.
-If that email already belongs to a password account, Google sign-in is rejected;
-automatic account linking is not enabled. Send browser API requests with
-credentials enabled.
+An existing password account with the same verified Google email is linked to
+that Google identity, preserving its Spendwise data. Send browser API requests
+with credentials enabled.
 
 `GET /api/auth/csrf` returns the CSRF header name and token for state-changing
 requests:
@@ -69,7 +26,7 @@ requests:
 
 Send the token in the returned header and include the session cookie on
 state-changing requests. `GET /api/auth/me` returns the signed-in account
-profile and its provider (`PASSWORD` or `GOOGLE`).
+profile and its provider (`GOOGLE`).
 `POST /api/auth/logout` ends the session and returns `204`.
 Unauthenticated `/api/**` requests return `401`; `/api/health` remains public.
 
@@ -184,18 +141,17 @@ policy). Saved category, brand, retailer, and keyword preferences are supplied
 to Gemini as soft ranking context. Customers can review or change them at any
 time with `GET` and `PUT /api/v1/shopping/preferences`.
 
-Gemini compares the eligible Channel3 offers and returns an explanation for
-each candidate in `recommendationExplanation`, plus a short overall
-`recommendation`. The comparison uses the customer's prompt and saved
-preferences against Channel3 title, brand, merchant, and price data. Those
-commercial facts remain server-sourced from Channel3; Gemini cannot add/remove
-eligible products or affect checkout policy. `AI_RECOMMENDED` orders results
-by that comparison. Other sort choices retain their requested ordering while
-still returning explanations. The response's `comparisonSummary` explains the
-overall match separately from the `recommendation` string that describes the
-selected sort. Unknown and duplicate candidate IDs are ignored.
-If a comparison call fails after the search succeeds, the API returns the
-products without AI explanations and falls back to deterministic ordering.
+Search returns policy-checked Channel3 offers immediately in catalog order,
+with `aiRanked: false`. The client can then call
+`POST /api/v1/shopping/search/{searchSessionId}/recommendations` to generate
+Gemini ranking and explanations. That endpoint returns ordered candidate IDs,
+per-candidate explanations, an overall summary, and whether Gemini ranking was
+applied. The client applies those IDs and explanations to the original search
+result. If Gemini is unavailable, it receives `aiRanked: false` and can keep
+the original catalog order. Gemini uses the customer's prompt and saved
+preferences against Channel3 title, brand, merchant, price, and available
+rating data. It cannot add/remove eligible products or affect checkout policy;
+unknown and duplicate candidate IDs are ignored.
 
 The backend calls `POST https://api.trychannel3.com/v1/search` with the
 `x-api-key` header and JSON content type. The provider request includes the

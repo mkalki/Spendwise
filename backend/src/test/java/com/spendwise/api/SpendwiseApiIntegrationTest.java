@@ -26,6 +26,7 @@ import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.product.dto.ShoppingSearchRequest;
 import com.spendwise.product.dto.ShoppingSearchResponse;
 import com.spendwise.product.service.ProductSearchService;
+import com.spendwise.product.service.ShoppingSearchQuotaService;
 import com.spendwise.product.service.ShoppingProfileService;
 import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.common.security.GeminiUserRateLimiter;
@@ -72,6 +73,9 @@ class SpendwiseApiIntegrationTest {
 
     @MockitoBean
     private ProductSearchService productSearchService;
+
+    @MockitoBean
+    private ShoppingSearchQuotaService shoppingSearchQuotaService;
 
     @MockitoBean
     private ShoppingProfileService shoppingProfileService;

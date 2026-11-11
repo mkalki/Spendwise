@@ -18,6 +18,7 @@ import com.spendwise.payment.service.PayPalWebhookService;
 import com.spendwise.product.controller.ShoppingController;
 import com.spendwise.product.controller.ShoppingProfileController;
 import com.spendwise.product.service.ProductSearchService;
+import com.spendwise.product.service.ShoppingSearchQuotaService;
 import com.spendwise.product.service.ShoppingProfileService;
 import com.spendwise.common.security.GeminiUserRateLimiter;
 import org.junit.jupiter.api.Test;
@@ -106,6 +107,11 @@ class SwaggerUiIntegrationTest {
         @Bean
         ProductSearchService productSearchService() {
             return mock(ProductSearchService.class);
+        }
+
+        @Bean
+        ShoppingSearchQuotaService shoppingSearchQuotaService() {
+            return mock(ShoppingSearchQuotaService.class);
         }
 
         @Bean

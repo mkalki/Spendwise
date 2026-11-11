@@ -249,7 +249,7 @@ redirect URI. Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `CHANNEL3_API_KEY`, `GEMINI_API_KEY`, `PAYPAL_CLIENT_ID`, and
 `PAYPAL_CLIENT_SECRET` as Render secrets. The PayPal credentials must be from a
 Sandbox REST app. Register a webhook at
-`https://spendwise-api.onrender.com/api/webhooks/paypal`, then set
+`https://spendwise-api-88bt.onrender.com/api/webhooks/paypal`, then set
 `PAYPAL_WEBHOOK_ID` if using webhooks.
 
 Do not put production credentials in the repository's `.env` or commit them.

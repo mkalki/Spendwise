@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://spendwise-api.onrender.com/api/:path*"
+      "destination": "https://spendwise-api-88bt.onrender.com/api/:path*"
     },
     {
       "source": "/oauth2/:path*",
-      "destination": "https://spendwise-api.onrender.com/oauth2/:path*"
+      "destination": "https://spendwise-api-88bt.onrender.com/oauth2/:path*"
     },
     {
       "source": "/login/oauth2/:path*",
-      "destination": "https://spendwise-api.onrender.com/login/oauth2/:path*"
+      "destination": "https://spendwise-api-88bt.onrender.com/login/oauth2/:path*"
     },
     {
       "source": "/(.*)",

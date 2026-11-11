@@ -46,19 +46,14 @@ user, and call `POST /api/auth/logout` with the CSRF header/token obtained from
 `GET /api/auth/csrf`. The session is the authentication credential; do not put
 OAuth access tokens in browser storage.
 
-### Password accounts
+### Google accounts
 
-`POST /api/auth/signup` accepts `email`, `username`, and `password`, creates an
-unverified account, and emails a one-time verification link. The account can
-sign in only after the link is used. Configure `RESEND_API_KEY` and
-`RESEND_FROM_EMAIL` in `.env`; the sender address must be verified with Resend.
-Set `FRONTEND_ORIGIN` to the URL that should receive the verification link.
-`POST /api/auth/login` accepts `identifier` (email or username) and `password`.
-Fetch `GET /api/auth/csrf` first and send its token in `X-XSRF-TOKEN` with
-signup/login/verification requests. Passwords are stored as PBKDF2 hashes.
-Google login and signup are available at
-`/api/auth/google/login` and `/api/auth/google/signup`; first Google sign-in
-creates the account when its verified email is unused.
+Google OAuth is the only supported registration and sign-in method. Start it
+at `/api/auth/google/login` or `/api/auth/google/signup`; both use Google, and
+the first successful sign-in creates the Spendwise account. Google must report
+a verified email address. Existing password accounts are linked to Google the
+first time the same verified Google email signs in; their Spendwise data remains
+attached to the account.
 
 ### Cart and checkout details
 
@@ -213,7 +208,7 @@ k6 run load-tests/spendwise-api.js
 
 | Area | Status |
 | --- | --- |
-| Google OAuth and password sessions | Implemented; live Google sign-in requires configured OAuth credentials. |
+| Google OAuth sessions | Implemented; live Google sign-in requires configured OAuth credentials. |
 | Gemini integration, product comparison, and explanations | Implemented; explanations compare eligible Channel3 candidates with the customer's prompt and saved preferences. Gemini cannot provide commercial product facts or affect policy eligibility. Calls have bounded timeouts, transient retries, and a 20-request/minute user limit. |
 | Channel3 product search | Implemented with filters, 100 requests/minute per user, provider timeouts, and retry handling. |
 | PayPal Sandbox checkout | Implemented with owner-scoped idempotency, serialized captures, and PayPal status verification before marking paid. |

@@ -24,4 +24,16 @@ public interface ProductCandidateRepository extends JpaRepository<ProductCandida
     Optional<ProductCandidate> findOwnedById(
             @Param("candidateId") UUID candidateId,
             @Param("ownerId") String ownerId);
+
+    @Query("""
+            select candidate
+            from ProductCandidate candidate
+            join fetch candidate.searchSession searchSession
+            where searchSession.id = :sessionId
+              and searchSession.ownerId = :ownerId
+              and candidate.eligible = true
+            """)
+    List<ProductCandidate> findEligibleBySearchSession(
+            @Param("sessionId") UUID sessionId,
+            @Param("ownerId") String ownerId);
 }

@@ -1,15 +1,11 @@
 package com.spendwise.auth.service;
 
 import com.spendwise.auth.dto.AuthResponse;
-import com.spendwise.auth.dto.SignupResponse;
-import com.spendwise.auth.dto.SignupRequest;
 import com.spendwise.auth.entity.UserAccount;
 import com.spendwise.auth.repository.UserAccountRepository;
 import com.spendwise.common.exception.ApiException;
 import java.util.Locale;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,54 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountService {
 
     private final UserAccountRepository repository;
-    private final PasswordEncoder passwordEncoder;
-    private final EmailVerificationService emailVerificationService;
-
-    public AccountService(
-            UserAccountRepository repository,
-            PasswordEncoder passwordEncoder,
-            EmailVerificationService emailVerificationService) {
+    public AccountService(UserAccountRepository repository) {
         this.repository = repository;
-        this.passwordEncoder = passwordEncoder;
-        this.emailVerificationService = emailVerificationService;
     }
 
     @Transactional
-    public SignupResponse signUp(SignupRequest request) {
-        String email = normalize(request.email());
-        String username = normalize(request.username());
-
-        if (repository.findByEmailIgnoreCase(email).isPresent()) {
-            throw accountConflict("EMAIL_ALREADY_REGISTERED", "An account with this email already exists.");
-        }
-        if (repository.findByUsernameIgnoreCase(username).isPresent()) {
-            throw accountConflict("USERNAME_ALREADY_TAKEN", "This username is already taken.");
-        }
-
-        UserAccount account = repository.saveAndFlush(UserAccount.passwordAccount(
-                UUID.randomUUID().toString(),
-                email,
-                username,
-                passwordEncoder.encode(request.password())));
-        emailVerificationService.issueAndSend(account);
-        return new SignupResponse(email, "Check your inbox for a verification link before signing in.");
-    }
-
-    @Transactional
-    public void verifyEmail(String token) {
-        emailVerificationService.verify(token);
-    }
-
-    @Transactional
-    public void resendVerificationEmail(String email) {
-        repository.findByEmailIgnoreCase(normalize(email))
-                .filter(account -> account.getProvider() == UserAccount.Provider.PASSWORD)
-                .filter(account -> !account.isEmailVerified())
-                .ifPresent(emailVerificationService::resendIfAllowed);
-    }
-
-    @Transactional
-    public void registerGoogleAccount(OidcUser googleUser) {
+    public String registerGoogleAccount(OidcUser googleUser) {
         String subject = googleUser.getSubject();
         String email = googleUser.getEmail();
         Boolean emailVerified = googleUser.getClaimAsBoolean("email_verified");
@@ -83,20 +37,27 @@ public class AccountService {
                     normalizedEmail,
                     googleUser.getFullName(),
                     googleUser.getPicture());
-            return;
+            return byGoogleSubject.getId();
         }
 
-        if (repository.findByEmailIgnoreCase(normalizedEmail).isPresent()) {
+        UserAccount existingByEmail = repository.findByEmailIgnoreCase(normalizedEmail).orElse(null);
+        if (existingByEmail != null) {
+            if (existingByEmail.getProvider() == UserAccount.Provider.PASSWORD) {
+                existingByEmail.linkGoogleIdentity(
+                        subject, normalizedEmail, googleUser.getFullName(), googleUser.getPicture());
+                return existingByEmail.getId();
+            }
             throw accountConflict(
                     "EMAIL_ALREADY_REGISTERED",
-                    "This email belongs to an existing account. Sign in with that account first.");
+                    "This Google email is already connected to another Spendwise account.");
         }
 
-        repository.saveAndFlush(UserAccount.googleAccount(
+        UserAccount account = repository.saveAndFlush(UserAccount.googleAccount(
                 subject,
                 normalizedEmail,
                 googleUser.getFullName(),
                 googleUser.getPicture()));
+        return account.getId();
     }
 
     @Transactional(readOnly = true)

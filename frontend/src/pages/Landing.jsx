@@ -10,7 +10,7 @@ const objects = [
   { image: 'product-003.jpg', number: '003', category: 'ESSENTIALS / ELEVATED', title: 'Carry less impulse.', description: 'Discover something worth making room for.' },
 ];
 
-export default function Landing({ onAuthenticated }) {
+export default function Landing() {
   const [auth, setAuth] = useState(() => new URLSearchParams(window.location.search).get('auth') === 'login');
   const [paused, setPaused] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [immersive, setImmersive] = useState(false);
@@ -106,6 +106,6 @@ export default function Landing({ onAuthenticated }) {
       <nav className="film-chapters" aria-label="Experience chapters" hidden={immersive}>{chapters.map((name, index) => <a key={name} href={`#${['discover','your-world','your-rules'][index]}`} aria-current={chapter === index ? 'location' : undefined}><span>0{index+1}</span><span>{name}</span></a>)}</nav>
       <div className="film-controls"><button className="film-control" disabled={mediaError} aria-label={paused ? 'Play background film' : 'Pause background film'} aria-pressed={!paused} onClick={() => setPaused(!paused)}>{paused ? <Play size={22}/> : <Pause size={22}/>}</button><button className="film-control" aria-label={immersive ? 'Exit cinema view' : 'Enter cinema view'} aria-pressed={immersive} onClick={() => setImmersive(!immersive)}>{immersive ? <Minimize2 size={22}/> : <Maximize2 size={22}/>}</button></div>
     </footer>
-    {auth && <div className="film-auth-overlay" role="dialog" aria-modal="true" aria-label="Sign in to Spendwise"><div ref={dialog} className="film-auth-dialog"><button className="film-auth-close" onClick={() => setAuth(false)} aria-label="Close sign in"><X size={22}/></button><AuthPage onAuthenticated={onAuthenticated}/></div></div>}
+    {auth && <div className="film-auth-overlay" role="dialog" aria-modal="true" aria-label="Google account access"><div ref={dialog} className="film-auth-dialog"><button className="film-auth-close" onClick={() => setAuth(false)} aria-label="Close sign in"><X size={22}/></button><AuthPage/></div></div>}
   </div>;
 }

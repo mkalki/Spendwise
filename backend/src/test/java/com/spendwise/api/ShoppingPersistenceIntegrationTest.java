@@ -29,16 +29,13 @@ import com.spendwise.integration.gemini.dto.GeminiShoppingIntent;
 import com.spendwise.policy.dto.SpendingPolicyRequest;
 import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.payment.repository.PaymentTransactionRepository;
-import com.spendwise.auth.integration.ResendEmailClient;
-import com.spendwise.auth.entity.EmailVerificationToken;
-import com.spendwise.auth.repository.EmailVerificationTokenRepository;
+import com.spendwise.auth.entity.UserAccount;
 import com.spendwise.auth.repository.UserAccountRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -49,6 +46,10 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -84,10 +85,8 @@ class ShoppingPersistenceIntegrationTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private MockMvc mvc;
     @Autowired private UserAccountRepository userAccountRepository;
-    @Autowired private EmailVerificationTokenRepository emailVerificationTokenRepository;
     @MockitoBean private GeminiService geminiService;
     @MockitoBean private Channel3Client channel3Client;
-    @MockitoBean private ResendEmailClient resendEmailClient;
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -106,7 +105,7 @@ class ShoppingPersistenceIntegrationTest {
 
     @Test
     void cartAndCheckoutDetailsFollowTheSameEmailAcrossSessionsAndStayPrivate() throws Exception {
-        var first = signupVerifyAndLogin("cart-owner@example.com", "cart-owner");
+        var first = googleSession("cart-owner@example.com", "google-cart-owner");
         String owner = objectMapper.readTree(mvc.perform(get("/api/auth/me").session(first))
                 .andReturn().getResponse().getContentAsString()).path("id").asText();
         var search = searchSessionRepository.save(new ShoppingSearchSession(
@@ -131,11 +130,7 @@ class ShoppingPersistenceIntegrationTest {
                           "city":"Example","countryCode":"US"}}
                         """)).andExpect(status().isOk());
 
-        var login = mvc.perform(post("/api/auth/login").with(csrf()).contentType("application/json")
-                .content("""
-                        {"identifier":"CART-OWNER@example.com","password":"test-password-123"}
-                        """)).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(owner)).andReturn();
-        var second = (MockHttpSession) login.getRequest().getSession(false);
+        var second = googleSession("cart-owner@example.com", "google-cart-owner");
         assertThat(second.getId()).isNotEqualTo(first.getId());
         mvc.perform(get("/api/v1/cart").session(second)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
@@ -147,7 +142,7 @@ class ShoppingPersistenceIntegrationTest {
                 .andExpect(jsonPath("$.shipping.line1").value("100 Test Street"))
                 .andExpect(jsonPath("$.billing.line1").value("200 Billing Street"));
 
-        var stranger = signupVerifyAndLogin("cart-other@example.com", "cart-other");
+        var stranger = googleSession("cart-other@example.com", "google-cart-other");
         mvc.perform(get("/api/v1/cart").session(stranger)).andExpect(jsonPath("$.length()").value(0));
         mvc.perform(get("/api/v1/cart/details").session(stranger)).andExpect(jsonPath("$.shipping").doesNotExist());
         mvc.perform(put(cartItem).session(stranger).with(csrf())).andExpect(status().isNotFound());
@@ -157,81 +152,21 @@ class ShoppingPersistenceIntegrationTest {
         mvc.perform(get("/api/v1/cart").session(first)).andExpect(jsonPath("$.length()").value(0));
     }
 
-    @Test
-    void passwordSignupRequiresEmailVerificationBeforeLoginAndThenStartsASession() throws Exception {
-        String suffix = UUID.randomUUID().toString().substring(0, 8);
-        String email = "verify-" + suffix + "@example.com";
-        String username = "verify-" + suffix;
-        String signupBody = mvc.perform(post("/api/auth/signup").with(csrf()).contentType("application/json")
-                        .content("""
-                                {"email":"%s","username":"%s","password":"test-password-123"}
-                                """.formatted(email, username)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.email").value(email))
-                .andReturn().getResponse().getContentAsString();
-        assertThat(objectMapper.readTree(signupBody).path("id").isMissingNode()).isTrue();
-
-        var pendingAccount = userAccountRepository.findByEmailIgnoreCase(email).orElseThrow();
-        assertThat(pendingAccount.isEmailVerified()).isFalse();
-        ArgumentCaptor<String> verificationUrl = ArgumentCaptor.forClass(String.class);
-        verify(resendEmailClient).sendVerificationEmail(eq(email), verificationUrl.capture());
-        String rawToken = java.net.URI.create(verificationUrl.getValue()).getRawQuery().substring("token=".length());
-        EmailVerificationToken storedToken = emailVerificationTokenRepository.findById(pendingAccount.getId())
-                .orElseThrow();
-        assertThat(storedToken.getTokenHash()).isNotEqualTo(rawToken).hasSize(64);
-
-        mvc.perform(post("/api/auth/login").with(csrf()).contentType("application/json")
-                        .content("""
-                                {"identifier":"%s","password":"test-password-123"}
-                                """.formatted(username)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
-
-        mvc.perform(post("/api/auth/verify-email").with(csrf()).contentType("application/json")
-                        .content("{\"token\":\"%s\"}".formatted(rawToken)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Email verified. You can now sign in."));
-        assertThat(userAccountRepository.findById(pendingAccount.getId()).orElseThrow().isEmailVerified()).isTrue();
-        assertThat(emailVerificationTokenRepository.findById(pendingAccount.getId())).isEmpty();
-
-        mvc.perform(post("/api/auth/verify-email").with(csrf()).contentType("application/json")
-                        .content("{\"token\":\"%s\"}".formatted(rawToken)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("EMAIL_VERIFICATION_INVALID"));
-
-        var login = mvc.perform(post("/api/auth/login").with(csrf()).contentType("application/json")
-                        .content("""
-                                {"identifier":"%s","password":"test-password-123"}
-                                """.formatted(username)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(pendingAccount.getId()))
-                .andReturn();
-        MockHttpSession session = (MockHttpSession) login.getRequest().getSession(false);
-        mvc.perform(get("/api/auth/me").session(session))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(email));
+    private MockHttpSession googleSession(String email, String subject) {
+        userAccountRepository.findByGoogleSubject(subject).orElseGet(() -> userAccountRepository.saveAndFlush(
+                UserAccount.googleAccount(subject, email, email, null)));
+        var authentication = new TestingAuthenticationToken(new TestPrincipal(subject), null, "ROLE_USER");
+        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+        securityContext.setAuthentication(authentication);
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, securityContext);
+        return session;
     }
 
-    private MockHttpSession signupVerifyAndLogin(String email, String username) throws Exception {
-        mvc.perform(post("/api/auth/signup").with(csrf()).contentType("application/json")
-                        .content("""
-                                {"email":"%s","username":"%s","password":"test-password-123"}
-                                """.formatted(email, username)))
-                .andExpect(status().isCreated());
-
-        ArgumentCaptor<String> link = ArgumentCaptor.forClass(String.class);
-        verify(resendEmailClient).sendVerificationEmail(eq(email), link.capture());
-        String token = java.net.URI.create(link.getValue()).getRawQuery().substring("token=".length());
-        mvc.perform(post("/api/auth/verify-email").with(csrf()).contentType("application/json")
-                        .content("{\"token\":\"%s\"}".formatted(token)))
-                .andExpect(status().isOk());
-
-        var login = mvc.perform(post("/api/auth/login").with(csrf()).contentType("application/json")
-                        .content("""
-                                {"identifier":"%s","password":"test-password-123"}
-                                """.formatted(username)))
-                .andExpect(status().isOk()).andReturn();
-        return (MockHttpSession) login.getRequest().getSession(false);
+    private record TestPrincipal(String name) {
+        public String getName() {
+            return name;
+        }
     }
 
     @Test
@@ -354,11 +289,13 @@ class ShoppingPersistenceIntegrationTest {
         assertThat(result.intent().preferences()).containsExactly("quiet");
         assertThat(result.eligibleCandidates()).hasSize(1);
         assertThat(result.eligibleCandidates().getFirst().price()).isEqualTo("42.00");
-        assertThat(result.aiRanked()).isTrue();
+        assertThat(result.aiRanked()).isFalse();
         assertThat(result.eligibleCandidates().getFirst().rating().value()).isEqualByComparingTo("4.6");
         assertThat(result.eligibleCandidates().getFirst().rating().sourceCount()).isEqualTo(3);
-        assertThat(result.eligibleCandidates().getFirst().recommendationExplanation())
-                .isEqualTo("Matches the saved Acme preference and quiet request.");
+        var recommendations = productSearchService.recommendations(owner, result.searchSessionId());
+        assertThat(recommendations.aiRanked()).isTrue();
+        assertThat(recommendations.explanations()).containsValue(
+                "Matches the saved Acme preference and quiet request.");
         assertThat(result.rejectedCandidates()).hasSize(1);
         assertThat(result.rejectedCandidates().getFirst().rating()).isNull();
         assertThat(result.rejectedCandidates().getFirst().rejectionReason()).contains("maximum product price");

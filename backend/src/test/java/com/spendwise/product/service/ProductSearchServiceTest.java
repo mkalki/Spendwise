@@ -25,12 +25,15 @@ import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.product.dto.ShoppingSearchRequest;
 import com.spendwise.product.dto.ShoppingSortBy;
 import com.spendwise.product.dto.ShoppingPreferencesResponse;
+import com.spendwise.product.entity.ProductCandidate;
+import com.spendwise.product.entity.ShoppingSearchSession;
 import com.spendwise.product.integration.Channel3Client;
 import com.spendwise.product.repository.ProductCandidateRepository;
 import com.spendwise.product.repository.ShoppingSearchSessionRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -107,9 +110,23 @@ class ProductSearchServiceTest {
                 new ShoppingSearchRequest("Find a quiet laptop", ShoppingSortBy.AI_RECOMMENDED));
 
         assertThat(response.intent().requestedMaxPrice()).isEqualTo("45.00");
-        assertThat(response.eligibleCandidates().getFirst().recommendationExplanation())
-                .isEqualTo("Matches your Acme and quiet preferences.");
-        assertThat(response.comparisonSummary()).isEqualTo("This offer matches your saved brand and keyword preferences.");
+        assertThat(response.aiRanked()).isFalse();
+        assertThat(response.eligibleCandidates().getFirst().recommendationExplanation()).isNull();
+        ArgumentCaptor<ShoppingSearchSession> sessionCaptor = ArgumentCaptor.forClass(ShoppingSearchSession.class);
+        ArgumentCaptor<List<ProductCandidate>> candidatesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(sessionRepository).save(sessionCaptor.capture());
+        verify(candidateRepository).saveAll(candidatesCaptor.capture());
+        when(sessionRepository.findByIdAndOwnerId(response.searchSessionId(), OWNER))
+                .thenReturn(Optional.of(sessionCaptor.getValue()));
+        when(candidateRepository.findEligibleBySearchSession(response.searchSessionId(), OWNER))
+                .thenReturn(candidatesCaptor.getValue());
+
+        var recommendations = service.recommendations(OWNER, response.searchSessionId());
+
+        assertThat(recommendations.aiRanked()).isTrue();
+        assertThat(recommendations.explanations()).containsValue("Matches your Acme and quiet preferences.");
+        assertThat(recommendations.summary())
+                .isEqualTo("This offer matches your saved brand and keyword preferences.");
         verify(channel3Client).search("quiet laptop", new BigDecimal("45.00"), "US", "USD");
         verify(geminiService).explainShoppingCandidates(
                 org.mockito.ArgumentMatchers.eq("Find a quiet laptop"),

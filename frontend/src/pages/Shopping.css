@@ -68,18 +68,6 @@
 .auth-google, .auth-credentials > .save-button { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .auth-google span { color: #ff9cb3; font-weight: 700; }
 .auth-divider { text-align: center; color: #afa4bb; font-size: .85rem; }
-.auth-credentials { display: grid; gap: 12px; }
-.auth-credentials input { width: 100%; }
-.auth-credentials small { color: #afa4bb; }
-.auth-verification-notice { display: grid; justify-items: start; align-content: center; gap: 14px; }
-.auth-verification-notice > svg { color: #ff829d; }
-.auth-verification-notice h3, .auth-verification-notice p { margin: 0; }
-.auth-verification-notice p { color: #c7bbd2; line-height: 1.6; overflow-wrap: anywhere; }
-.auth-verification-notice .save-button { width: 100%; }
-.auth-verification-notice .text-button { justify-self: center; color: #ff9cb3; }
-.auth-password { display: flex; align-items: center; position: relative; }
-.auth-password input { padding-right: 45px; }
-.auth-password button { position: absolute; right: 6px; padding: 7px; }
 
 @media (max-width: 940px) { .shop-page { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 620px) {

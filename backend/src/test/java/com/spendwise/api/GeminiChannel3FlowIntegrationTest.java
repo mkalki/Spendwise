@@ -24,6 +24,8 @@ import com.spendwise.policy.engine.PolicyEngine;
 import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.product.integration.Channel3Client;
+import com.spendwise.product.entity.ProductCandidate;
+import com.spendwise.product.entity.ShoppingSearchSession;
 import com.spendwise.product.repository.ProductCandidateRepository;
 import com.spendwise.product.repository.ShoppingSearchSessionRepository;
 import com.spendwise.product.service.ProductSearchService;
@@ -31,6 +33,10 @@ import com.spendwise.product.service.ShoppingIntentService;
 import com.spendwise.product.service.ShoppingProfileService;
 import java.math.BigDecimal;
 import java.security.Principal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -77,11 +83,26 @@ class GeminiChannel3FlowIntegrationTest {
     @MockitoBean private ShoppingProfileService shoppingProfileService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private ShoppingSearchSession savedSession;
+    private List<ProductCandidate> savedCandidates = List.of();
 
     @BeforeEach
     void setUp() {
         when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        when(sessionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sessionRepository.save(any())).thenAnswer(invocation -> {
+            savedSession = invocation.getArgument(0);
+            return savedSession;
+        });
+        when(candidateRepository.saveAll(any())).thenAnswer(invocation -> {
+            savedCandidates = new ArrayList<>();
+            ((Iterable<ProductCandidate>) invocation.getArgument(0)).forEach(savedCandidates::add);
+            return savedCandidates;
+        });
+        when(sessionRepository.findByIdAndOwnerId(any(UUID.class), org.mockito.ArgumentMatchers.eq("owner-1")))
+                .thenAnswer(invocation -> Optional.ofNullable(savedSession));
+        when(candidateRepository.findEligibleBySearchSession(
+                any(UUID.class), org.mockito.ArgumentMatchers.eq("owner-1")))
+                .thenAnswer(invocation -> savedCandidates);
         when(policyService.getActive("owner-1")).thenReturn(new SpendingPolicy(
                 "owner-1", new BigDecimal("100.00"), new BigDecimal("150.00"),
                 new BigDecimal("300.00"), 3, "USD", "US", "UTC"));
@@ -233,7 +254,7 @@ class GeminiChannel3FlowIntegrationTest {
         when(shoppingProfileService.getPreferences("owner-1"))
                 .thenReturn(ShoppingPreferencesResponse.empty());
 
-        mockMvc.perform(post("/api/v1/shopping/search")
+        var searchResponse = mockMvc.perform(post("/api/v1/shopping/search")
                         .with(authenticatedAsOwner())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -241,17 +262,21 @@ class GeminiChannel3FlowIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.eligibleCandidates.length()").value(2))
-                .andExpect(jsonPath("$.eligibleCandidates[0].channel3ProductId").value("channel3-laptop-b"))
-                .andExpect(jsonPath("$.eligibleCandidates[0].productTitle").value("Laptop B"))
-                .andExpect(jsonPath("$.eligibleCandidates[0].brand").value("Brand B"))
-                .andExpect(jsonPath("$.eligibleCandidates[0].merchantName").value("merchant-b.example"))
-                .andExpect(jsonPath("$.eligibleCandidates[0].price").value("75.00"))
-                .andExpect(jsonPath("$.eligibleCandidates[0].offerUrl")
-                        .value("https://merchant-b.example/b"))
-                .andExpect(jsonPath("$.eligibleCandidates[0].recommendationExplanation")
+                .andExpect(jsonPath("$.aiRanked").value(false))
+                .andExpect(jsonPath("$.eligibleCandidates[0].channel3ProductId").value("channel3-laptop-a"))
+                .andReturn();
+        var search = objectMapper.readTree(searchResponse.getResponse().getContentAsString());
+        String sessionId = search.path("searchSessionId").asText();
+        String rankedCandidateId = search.at("/eligibleCandidates/1/candidateId").asText();
+
+        mockMvc.perform(post("/api/v1/shopping/search/{sessionId}/recommendations", sessionId)
+                        .with(authenticatedAsOwner()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiRanked").value(true))
+                .andExpect(jsonPath("$.rankedCandidateIds[0]").value(rankedCandidateId))
+                .andExpect(jsonPath("$.explanations['" + rankedCandidateId + "']")
                         .value("Brand B matches your coding use case."))
-                .andExpect(jsonPath("$.recommendation").value("Laptop B is the closest match to your request."))
-                .andExpect(jsonPath("$.comparisonSummary").value("Laptop B is the closest match to your request."));
+                .andExpect(jsonPath("$.summary").value("Laptop B is the closest match to your request."));
     }
 
     private RequestPostProcessor authenticatedAsOwner() {

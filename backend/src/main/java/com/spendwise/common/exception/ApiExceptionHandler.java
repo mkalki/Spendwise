@@ -23,15 +23,6 @@ public class ApiExceptionHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
-    @ExceptionHandler(com.spendwise.auth.integration.EmailDeliveryException.class)
-    ResponseEntity<ApiError> handleEmailDeliveryFailure(
-            com.spendwise.auth.integration.EmailDeliveryException exception) {
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ApiError(
-                "EMAIL_DELIVERY_UNAVAILABLE",
-                "We could not send the verification email. Please try again later.",
-                Map.of()));
-    }
-
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ApiError> handleApiException(ApiException exception) {
         ResponseEntity.BodyBuilder response = ResponseEntity.status(exception.getStatus());

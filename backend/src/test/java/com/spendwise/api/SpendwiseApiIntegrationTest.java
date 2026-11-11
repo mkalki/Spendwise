@@ -20,7 +20,6 @@ import com.spendwise.integration.gemini.GeminiService;
 import com.spendwise.integration.gemini.dto.GeminiRequest;
 import com.spendwise.integration.gemini.dto.GeminiResponse;
 import com.spendwise.auth.service.AccountService;
-import com.spendwise.auth.service.SessionAuthenticationService;
 import com.spendwise.policy.dto.SpendingPolicyRequest;
 import com.spendwise.policy.entity.SpendingPolicy;
 import com.spendwise.policy.service.SpendingPolicyService;
@@ -81,9 +80,6 @@ class SpendwiseApiIntegrationTest {
 
     @MockitoBean
     private AccountService accountService;
-
-    @MockitoBean
-    private SessionAuthenticationService sessionAuthenticationService;
 
     @MockitoBean
     private GeminiService geminiService;

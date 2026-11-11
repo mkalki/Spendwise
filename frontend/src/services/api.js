@@ -126,46 +126,6 @@ export const api = {
     return request("/auth/me");
   },
 
-  async login(identifier, password) {
-    const data = await request("/auth/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ identifier, password }),
-    });
-    csrfToken = undefined;
-    return data;
-  },
-
-  async signup(email, username, password) {
-    const data = await request("/auth/signup", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email, username, password }),
-    });
-    csrfToken = undefined;
-    return data;
-  },
-
-  async verifyEmail(token) {
-    return request("/auth/verify-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-  },
-
-  async resendVerificationEmail(email) {
-    return request("/auth/verification/resend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-  },
-
   async logout() {
     await request("/auth/logout", { method: "POST" });
     csrfToken = undefined;
@@ -195,6 +155,10 @@ export const api = {
       },
       body: JSON.stringify({ message, sortBy: "AI_RECOMMENDED" }),
     });
+  },
+
+  async getShoppingRecommendations(searchSessionId) {
+    return request(`/v1/shopping/search/${searchSessionId}/recommendations`, { method: "POST" });
   },
 
   getCart() {

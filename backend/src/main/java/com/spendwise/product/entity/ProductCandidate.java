@@ -55,6 +55,15 @@ public class ProductCandidate {
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
 
+    @Column(name = "rating_value", precision = 3, scale = 2)
+    private BigDecimal ratingValue;
+
+    @Column(name = "rating_count")
+    private Long ratingCount;
+
+    @Column(name = "rating_source_count")
+    private Integer ratingSourceCount;
+
     @Column(name = "retrieved_at", nullable = false, insertable = false, updatable = false)
     private Instant retrievedAt;
 
@@ -74,6 +83,26 @@ public class ProductCandidate {
             String currencyCode,
             boolean eligible,
             String rejectionReason) {
+        this(id, searchSession, channel3ProductId, productTitle, brand, imageUrl, merchantName, offerUrl,
+                listedPrice, currencyCode, eligible, rejectionReason, null, null, null);
+    }
+
+    public ProductCandidate(
+            UUID id,
+            ShoppingSearchSession searchSession,
+            String channel3ProductId,
+            String productTitle,
+            String brand,
+            String imageUrl,
+            String merchantName,
+            String offerUrl,
+            BigDecimal listedPrice,
+            String currencyCode,
+            boolean eligible,
+            String rejectionReason,
+            BigDecimal ratingValue,
+            Long ratingCount,
+            Integer ratingSourceCount) {
         this.id = id;
         this.searchSession = searchSession;
         this.channel3ProductId = channel3ProductId;
@@ -86,6 +115,9 @@ public class ProductCandidate {
         this.currencyCode = currencyCode;
         this.eligible = eligible;
         this.rejectionReason = rejectionReason;
+        this.ratingValue = ratingValue;
+        this.ratingCount = ratingCount;
+        this.ratingSourceCount = ratingSourceCount;
     }
 
     public UUID getId() { return id; }
@@ -100,5 +132,8 @@ public class ProductCandidate {
     public String getCurrencyCode() { return currencyCode; }
     public boolean isEligible() { return eligible; }
     public String getRejectionReason() { return rejectionReason; }
+    public BigDecimal getRatingValue() { return ratingValue; }
+    public Long getRatingCount() { return ratingCount; }
+    public Integer getRatingSourceCount() { return ratingSourceCount; }
     public Instant getRetrievedAt() { return retrievedAt; }
 }

@@ -137,12 +137,55 @@ function compareOffers(a, b, sort) {
 export default function Products({ userId }) {
   const [filters, setFilters] = useState(defaults);
   const [saved, setSaved] = useState(null);
+  const [result, setResult] = useState(() => readResult(userId));
+  const [recommendationStatus, setRecommendationStatus] = useState("");
   const [adding, setAdding] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
   const [showComparison, setShowComparison] = useState(false);
-  const result = readResult(userId);
+
+  useEffect(() => {
+    setResult(readResult(userId));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!result?.searchSessionId || result.aiRanked || result.recommendationError) return;
+    let active = true;
+    setRecommendationStatus("Generating AI explanations…");
+    api.getShoppingRecommendations(result.searchSessionId).then((recommendations) => {
+      if (!active) return;
+      setResult((current) => {
+        if (!current || current.searchSessionId !== result.searchSessionId) return current;
+        const byId = new Map(current.eligibleCandidates.map((candidate) => [candidate.candidateId, candidate]));
+        for (const [candidateId, explanation] of Object.entries(recommendations.explanations || {})) {
+          const candidate = byId.get(candidateId);
+          if (candidate) byId.set(candidateId, { ...candidate, recommendationExplanation: explanation });
+        }
+        const ranked = (recommendations.rankedCandidateIds || []).map((id) => byId.get(id)).filter(Boolean);
+        const rankedIds = new Set(ranked.map(({ candidateId }) => candidateId));
+        const eligibleCandidates = [...ranked, ...current.eligibleCandidates
+          .filter(({ candidateId }) => !rankedIds.has(candidateId))
+          .map(({ candidateId }) => byId.get(candidateId))];
+        const updated = {
+          ...current,
+          eligibleCandidates,
+          aiRanked: Boolean(recommendations.aiRanked),
+          comparisonSummary: recommendations.summary || null,
+          recommendation: recommendations.summary || (recommendations.aiRanked
+            ? "Gemini compared eligible offers using your request and saved preferences."
+            : "AI recommendations are unavailable; showing the best catalog matches."),
+        };
+        sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
+        return updated;
+      });
+      setRecommendationStatus("");
+    }).catch(() => {
+      if (!active) return;
+      setRecommendationStatus("AI explanations are unavailable. Your policy-checked offers are ready.");
+    });
+    return () => { active = false; };
+  }, [userId, result?.searchSessionId]);
 
   useEffect(() => {
     let active = true;
@@ -216,6 +259,7 @@ export default function Products({ userId }) {
             <span className="eyebrow">POLICY-AWARE DISCOVERY</span>
             <h2>{result.intent?.normalizedQuery || "Search results"}</h2>
             <p className="shop-muted">{result.recommendation || "Results checked against your spending policy."}</p>
+            {recommendationStatus && <p className="shop-muted" role="status">{recommendationStatus}</p>}
           </div>
           <Link className="reset-button" to="/cart"><ShoppingCart size={16} /> View cart</Link>
         </div>

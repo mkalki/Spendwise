@@ -7,7 +7,9 @@ import { api } from "../services/api";
 export default function CheckoutReturn() {
   const location = useLocation();
   const checkoutId = sessionStorage.getItem("spendwise_checkout_id");
-  const [status, setStatus] = useState(checkoutId ? "processing" : "error");
+  const paypalOrderId = new URLSearchParams(location.search).get("token");
+  const isProCheckout = sessionStorage.getItem("spendwise_checkout_type") === "pro";
+  const [status, setStatus] = useState(checkoutId || paypalOrderId ? "processing" : "error");
   const [message, setMessage] = useState("Verifying your PayPal Sandbox payment...");
   const [checkout, setCheckout] = useState(null);
   const pending = useRef(null);
@@ -15,11 +17,30 @@ export default function CheckoutReturn() {
   useEffect(() => {
     const cancelled = location.pathname.endsWith("/cancel");
 
-    if (!checkoutId) return;
+    if (!checkoutId && !paypalOrderId) return;
 
-    const key = `${checkoutId}:${location.pathname}`;
+    const key = `${checkoutId || paypalOrderId}:${location.pathname}`;
     if (pending.current?.key !== key) {
-      const finish = cancelled ? api.cancelCheckout(checkoutId) : api.captureCheckout(checkoutId);
+      const finish = (async () => {
+        if (cancelled) {
+          if (!checkoutId) throw new Error("Checkout session was not found, so Spendwise could not confirm cancellation.");
+          return api.cancelCheckout(checkoutId);
+        }
+        if (checkoutId) {
+          try {
+            return await api.captureCheckout(checkoutId);
+          } catch (captureError) {
+            if (!paypalOrderId) throw captureError;
+            const current = await api.getPaymentStatus(paypalOrderId);
+            if (current.status === "CAPTURED") return current;
+            throw captureError;
+          }
+        }
+        const current = await api.getPaymentStatus(paypalOrderId);
+        if (current.status === "CAPTURED") return current;
+        if (current.checkoutSessionId) return api.captureCheckout(current.checkoutSessionId);
+        throw new Error("Spendwise could not match this PayPal payment to a checkout.");
+      })();
       pending.current = { key, finish };
     }
     let active = true;
@@ -27,13 +48,24 @@ export default function CheckoutReturn() {
       .then((checkout) => {
         if (!active) return;
         sessionStorage.removeItem("spendwise_checkout_id");
+        sessionStorage.removeItem("spendwise_checkout_type");
         setCheckout(checkout);
         setStatus(cancelled ? "cancelled" : "success");
-        setMessage(
-          cancelled
-            ? "The checkout was cancelled and the reservation was released."
-            : `Payment captured successfully: ${checkout.currency} ${checkout.amount}.`
-        );
+        if (cancelled) {
+          setMessage("The checkout was cancelled and the reservation was released.");
+        } else if (isProCheckout) {
+          api.getProMembership().then((membership) => {
+            if (!active) return;
+            window.dispatchEvent(new Event("spendwise:membership-updated"));
+            setMessage(membership.pro
+              ? `Spendwise Pro is active until ${new Date(membership.expiresAt).toLocaleDateString()}.`
+              : `Payment captured successfully: ${checkout.currency} ${checkout.amount}. Pro status is still updating; refresh this page shortly.`);
+          }).catch(() => {
+            if (active) setMessage(`Payment captured successfully: ${checkout.currency} ${checkout.amount}. Pro status is still updating; refresh this page shortly.`);
+          });
+        } else {
+          setMessage(`Payment captured successfully: ${checkout.currency} ${checkout.amount}.`);
+        }
       })
       .catch((error) => {
         if (!active) return;
@@ -41,7 +73,7 @@ export default function CheckoutReturn() {
         setMessage(error.message || "Unable to complete checkout.");
       });
     return () => { active = false; };
-  }, [checkoutId, location.pathname]);
+  }, [checkoutId, paypalOrderId, isProCheckout, location.pathname]);
 
   return (
     <div className={`panel checkout-result checkout-${status}`}>

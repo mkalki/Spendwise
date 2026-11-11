@@ -1,6 +1,7 @@
 package com.spendwise.payment.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -13,6 +14,9 @@ import com.spendwise.payment.integration.PaymentProviderRejectedException;
 import com.spendwise.payment.repository.PaymentTransactionRepository;
 import java.util.List;
 import java.util.Optional;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
@@ -22,6 +26,19 @@ class ProMembershipServiceTest {
     private final PaymentGateway paypal = mock(PaymentGateway.class);
     private final ProMembershipService service = new ProMembershipService(
             transactions, paypal, mock(AuditService.class));
+
+    @Test
+    void reportsAnActiveMonthlyMembershipWithoutDateTypeErrors() {
+        Instant completedAt = Instant.now().minus(1, ChronoUnit.DAYS);
+        PaymentTransaction payment = new PaymentTransaction("owner", "SPENDWISE_PRO_MONTHLY",
+                "Spendwise Pro monthly", "Spendwise", null, new BigDecimal("1.00"), "USD",
+                "monthly-key", null, null);
+        payment.markCompleted("capture-1", completedAt);
+        when(transactions.findAllByOwnerIdAndProductIdStartingWithOrderByCreatedAtDesc("owner", "SPENDWISE_PRO_"))
+                .thenReturn(List.of(payment));
+
+        assertThat(service.status("owner").pro()).isTrue();
+    }
 
     @Test
     void reportsRejectedPayPalSandboxCredentialsAsGatewayError() {

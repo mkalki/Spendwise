@@ -7,6 +7,19 @@ import "./Shopping.css";
 const defaults = { sort: "recommended", brand: "", merchant: "", max: "", status: "all" };
 const reviewCount = new Intl.NumberFormat();
 const comparisonLimit = 3;
+const pendingRecommendations = new Map();
+
+function getRecommendationsOnce(searchSessionId) {
+  const pending = pendingRecommendations.get(searchSessionId);
+  if (pending) return pending;
+  const request = api.getShoppingRecommendations(searchSessionId);
+  pendingRecommendations.set(searchSessionId, request);
+  request.then(
+    () => { if (pendingRecommendations.get(searchSessionId) === request) pendingRecommendations.delete(searchSessionId); },
+    () => { if (pendingRecommendations.get(searchSessionId) === request) pendingRecommendations.delete(searchSessionId); },
+  );
+  return request;
+}
 
 function ProductCard({ product, pick, added, busy, disabled, onAdd, comparison }) {
   const eligible = product.eligible;
@@ -139,6 +152,7 @@ export default function Products({ userId }) {
   const [saved, setSaved] = useState(null);
   const [result, setResult] = useState(() => readResult(userId));
   const [recommendationStatus, setRecommendationStatus] = useState("");
+  const [recommendationAttempt, setRecommendationAttempt] = useState(0);
   const [adding, setAdding] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -150,10 +164,10 @@ export default function Products({ userId }) {
   }, [userId]);
 
   useEffect(() => {
-    if (!result?.searchSessionId || result.aiRanked || result.recommendationError) return;
+    if (!result?.searchSessionId || result.recommendationsLoaded || result.recommendationError) return;
     let active = true;
     setRecommendationStatus("Generating AI explanations…");
-    api.getShoppingRecommendations(result.searchSessionId).then((recommendations) => {
+    getRecommendationsOnce(result.searchSessionId).then((recommendations) => {
       if (!active) return;
       setResult((current) => {
         if (!current || current.searchSessionId !== result.searchSessionId) return current;
@@ -170,6 +184,8 @@ export default function Products({ userId }) {
         const updated = {
           ...current,
           eligibleCandidates,
+          recommendationsLoaded: true,
+          recommendationError: false,
           aiRanked: Boolean(recommendations.aiRanked),
           comparisonSummary: recommendations.summary || null,
           recommendation: recommendations.summary || (recommendations.aiRanked
@@ -182,10 +198,26 @@ export default function Products({ userId }) {
       setRecommendationStatus("");
     }).catch(() => {
       if (!active) return;
+      setResult((current) => {
+        if (!current || current.searchSessionId !== result.searchSessionId) return current;
+        const updated = { ...current, recommendationError: true };
+        sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
+        return updated;
+      });
       setRecommendationStatus("AI explanations are unavailable. Your policy-checked offers are ready.");
     });
     return () => { active = false; };
-  }, [userId, result?.searchSessionId]);
+  }, [userId, result?.searchSessionId, recommendationAttempt]);
+
+  function retryRecommendations() {
+    setResult((current) => {
+      if (!current) return current;
+      const updated = { ...current, recommendationError: false, recommendationsLoaded: false };
+      sessionStorage.setItem("spendwise_search_result", JSON.stringify({ userId, result: updated }));
+      return updated;
+    });
+    setRecommendationAttempt((attempt) => attempt + 1);
+  }
 
   useEffect(() => {
     let active = true;
@@ -259,7 +291,9 @@ export default function Products({ userId }) {
             <span className="eyebrow">POLICY-AWARE DISCOVERY</span>
             <h2>{result.intent?.normalizedQuery || "Search results"}</h2>
             <p className="shop-muted">{result.recommendation || "Results checked against your spending policy."}</p>
-            {recommendationStatus && <p className="shop-muted" role="status">{recommendationStatus}</p>}
+            {recommendationStatus && <p className="shop-muted" role="status">{recommendationStatus}
+              {result.recommendationError && <> <button type="button" className="text-button" onClick={retryRecommendations}>Retry</button></>}
+            </p>}
           </div>
           <Link className="reset-button" to="/cart"><ShoppingCart size={16} /> View cart</Link>
         </div>

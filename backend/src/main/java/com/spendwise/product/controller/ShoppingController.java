@@ -4,6 +4,7 @@ import com.spendwise.product.dto.ShoppingSearchRequest;
 import com.spendwise.product.dto.ShoppingSearchResponse;
 import com.spendwise.product.dto.ShoppingRecommendationsResponse;
 import com.spendwise.product.service.ProductSearchService;
+import com.spendwise.product.service.ShoppingSearchQuotaService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
@@ -19,9 +20,11 @@ import java.util.UUID;
 public class ShoppingController {
 
     private final ProductSearchService searchService;
+    private final ShoppingSearchQuotaService quotaService;
 
-    public ShoppingController(ProductSearchService searchService) {
+    public ShoppingController(ProductSearchService searchService, ShoppingSearchQuotaService quotaService) {
         this.searchService = searchService;
+        this.quotaService = quotaService;
     }
 
     @PostMapping("/search")
@@ -33,6 +36,7 @@ public class ShoppingController {
     public ShoppingSearchResponse search(
             @AuthenticationPrincipal(expression = "name") String ownerId,
             @Valid @RequestBody ShoppingSearchRequest request) {
+        quotaService.acquire(ownerId);
         return searchService.search(ownerId, request);
     }
 

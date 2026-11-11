@@ -8,8 +8,13 @@ import {
   ShoppingBag,
   ShoppingCart,
   Receipt,
-  ShieldCheck,
+  Sparkles,
+  UserRound,
+  LogOut,
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../services/api";
 
 const menuItems = [
   {
@@ -42,9 +47,14 @@ const menuItems = [
     path: "/transactions",
     icon: Receipt,
   },
+  { name: "Spendwise Pro", path: "/pro", icon: Sparkles },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ user, onLogout }) {
+  const [membership, setMembership] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  useEffect(() => { api.getProMembership().then(setMembership).catch(() => setMembership({ pro: false })); }, [user?.id]);
+  const tier = membership?.pro ? "Pro" : "Free";
   return (
     <aside className="sidebar" aria-label="Primary navigation">
 
@@ -86,7 +96,6 @@ export default function Sidebar() {
               <Icon size={19} />
 
               <span>{item.name}</span>
-              <span className="nav-active-mark" aria-hidden="true" />
 
             </NavLink>
           );
@@ -95,17 +104,20 @@ export default function Sidebar() {
 
       </nav>
 
-      <div className="sidebar-bottom" role="status">
-
-        <div className="security-icon">
-          <ShieldCheck size={19} />
-        </div>
-
-        <div>
-          <h4>Your spending is protected</h4>
-          <p>Spending limits enforced</p>
-        </div>
-
+      <div className="sidebar-profile">
+        {profileOpen && <div className="sidebar-profile-menu" role="menu">
+          <strong>{user?.displayName || user?.name || user?.username || "Spendwise user"}</strong>
+          <span>{user?.email || ""}</span>
+          <Link to="/policies" onClick={() => setProfileOpen(false)}><UserRound size={14} /> Spending profile</Link>
+          <Link to="/pro" onClick={() => setProfileOpen(false)}><Sparkles size={14} /> Manage Pro</Link>
+          <button type="button" onClick={onLogout}><LogOut size={14} /> Sign out</button>
+        </div>}
+        <button className="sidebar-profile-button" type="button" title={tier}
+          aria-label={`Profile, ${tier}`} aria-expanded={profileOpen} onClick={() => setProfileOpen((open) => !open)}>
+          <span className="sidebar-profile-avatar">{(user?.displayName || user?.name || user?.username || user?.email || "U").slice(0, 1).toUpperCase()}</span>
+          <span className="sidebar-profile-copy"><strong>{user?.displayName || user?.name || user?.username || "Profile"}</strong><small>{tier}</small></span>
+          <span className="sidebar-tier-tooltip" role="tooltip">{tier}</span>
+        </button>
       </div>
 
     </aside>

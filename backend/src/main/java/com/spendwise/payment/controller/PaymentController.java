@@ -11,6 +11,9 @@ import com.spendwise.payment.dto.SavedPayPalCheckoutRequest;
 import com.spendwise.payment.dto.SavedPayPalMethodResponse;
 import com.spendwise.payment.entity.PaymentTransaction;
 import com.spendwise.payment.service.PayPalVaultService;
+import com.spendwise.payment.service.ProMembershipService;
+import com.spendwise.payment.dto.ProMembershipResponse;
+import com.spendwise.payment.dto.ProCheckoutRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -36,14 +39,30 @@ public class PaymentController {
     private final CheckoutService checkoutService;
     private final PayPalVaultService paypalVaultService;
     private final String paypalClientId;
+    private final ProMembershipService proMembershipService;
 
     public PaymentController(
             CheckoutService checkoutService,
             PayPalVaultService paypalVaultService,
+            ProMembershipService proMembershipService,
             @Value("${spendwise.paypal.client-id:}") String paypalClientId) {
         this.checkoutService = checkoutService;
         this.paypalVaultService = paypalVaultService;
+        this.proMembershipService = proMembershipService;
         this.paypalClientId = paypalClientId;
+    }
+
+    @GetMapping("/pro")
+    public ProMembershipResponse proStatus(@AuthenticationPrincipal(expression = "name") String ownerId) {
+        return proMembershipService.status(ownerId);
+    }
+
+    @PostMapping("/pro/checkout")
+    public PaymentResponse createProCheckout(
+            @AuthenticationPrincipal(expression = "name") String ownerId,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 100) String idempotencyKey,
+            @Valid @RequestBody ProCheckoutRequest request) {
+        return proMembershipService.create(ownerId, idempotencyKey, request.plan());
     }
 
     @GetMapping("/config")

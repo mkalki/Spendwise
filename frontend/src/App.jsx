@@ -13,6 +13,7 @@ import Cart from "./pages/Cart";
 import Transactions from "./pages/Transactions";
 import Landing from "./pages/Landing";
 import CheckoutReturn from "./pages/CheckoutReturn";
+import Pro from "./pages/Pro";
 import { api } from "./services/api";
 import AmbientScene from "./components/AmbientScene";
 import { ExperienceLoader } from "./components/ExperienceEffects";
@@ -38,6 +39,10 @@ export default function App() {
   }, []);
 
   const ready = !checkingSession;
+  async function logout() {
+    try { await api.logout(); setUser(null); }
+    catch (error) { console.error("Logout failed:", error); }
+  }
 
   if (checkingSession) {
     return (
@@ -63,21 +68,11 @@ export default function App() {
     <div className="app-shell studio-shell" id="top">
       <ExperienceLoader ready={ready} />
 
-      <Sidebar />
+      <Sidebar user={user} onLogout={logout} />
 
       <main className="main-content">
 
-        <Topbar
-          user={user}
-          onLogout={async () => {
-            try {
-              await api.logout();
-              setUser(null);
-            } catch (error) {
-              console.error("Logout failed:", error);
-            }
-          }}
-        />
+        <Topbar />
 
         <div className="page-content">
 
@@ -100,6 +95,7 @@ export default function App() {
             />
 
             <Route path="/cart" element={<Cart key={user.id} />} />
+            <Route path="/pro" element={<Pro />} />
 
             <Route
               path="/transactions"

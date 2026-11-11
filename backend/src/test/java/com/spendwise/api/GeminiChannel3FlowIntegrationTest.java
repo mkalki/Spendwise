@@ -31,6 +31,8 @@ import com.spendwise.product.repository.ShoppingSearchSessionRepository;
 import com.spendwise.product.service.ProductSearchService;
 import com.spendwise.product.service.ShoppingIntentService;
 import com.spendwise.product.service.ShoppingProfileService;
+import com.spendwise.product.service.ShoppingSearchQuotaService;
+import com.spendwise.payment.service.ProMembershipService;
 import java.math.BigDecimal;
 import java.security.Principal;
 import java.util.ArrayList;
@@ -81,6 +83,8 @@ class GeminiChannel3FlowIntegrationTest {
     @MockitoBean private PlatformTransactionManager transactionManager;
     @MockitoBean private AuditService auditService;
     @MockitoBean private ShoppingProfileService shoppingProfileService;
+    @MockitoBean private ShoppingSearchQuotaService shoppingSearchQuotaService;
+    @MockitoBean private ProMembershipService proMembershipService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private ShoppingSearchSession savedSession;

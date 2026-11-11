@@ -26,12 +26,14 @@ import com.spendwise.policy.service.SpendingPolicyService;
 import com.spendwise.product.dto.ShoppingSearchRequest;
 import com.spendwise.product.dto.ShoppingSearchResponse;
 import com.spendwise.product.service.ProductSearchService;
+import com.spendwise.product.service.ShoppingSearchQuotaService;
 import com.spendwise.product.service.ShoppingProfileService;
 import com.spendwise.common.security.Channel3UserRateLimiter;
 import com.spendwise.common.security.GeminiUserRateLimiter;
 import com.spendwise.payment.integration.PayPalWebhookVerifier;
 import com.spendwise.payment.service.PayPalVaultService;
 import com.spendwise.payment.service.PayPalWebhookService;
+import com.spendwise.payment.service.ProMembershipService;
 import java.math.BigDecimal;
 import java.security.Principal;
 import java.util.List;
@@ -73,6 +75,9 @@ class SpendwiseApiIntegrationTest {
     private ProductSearchService productSearchService;
 
     @MockitoBean
+    private ShoppingSearchQuotaService shoppingSearchQuotaService;
+
+    @MockitoBean
     private ShoppingProfileService shoppingProfileService;
 
     @MockitoBean
@@ -98,6 +103,9 @@ class SpendwiseApiIntegrationTest {
 
     @MockitoBean
     private PayPalVaultService payPalVaultService;
+
+    @MockitoBean
+    private ProMembershipService proMembershipService;
 
     @AfterEach
     void clearSecurityContext() {

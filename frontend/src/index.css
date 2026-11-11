@@ -98,6 +98,20 @@ textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; 
 .security-icon { color: var(--success); }
 .sidebar-bottom h4 { margin-bottom: 4px; font-size: 12px; }
 .sidebar-bottom p { margin: 0; font-size: 11px; }
+.sidebar-profile { position: relative; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); }
+.sidebar-profile-button { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.sidebar-profile-button:hover, .sidebar-profile-button:focus-visible { border-color: var(--border); background: var(--hover); }
+.sidebar-profile-avatar { display: grid; place-items: center; flex: 0 0 38px; height: 38px; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 700; }
+.sidebar-profile-copy { display: grid; min-width: 0; gap: 3px; }
+.sidebar-profile-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-profile-copy small { color: var(--muted); font-size: 10px; }
+.sidebar-tier-tooltip { position: absolute; left: calc(100% + 9px); top: 50%; z-index: 30; padding: 7px 10px; transform: translateY(-50%); border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font-size: 11px; opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.sidebar-profile-button:hover .sidebar-tier-tooltip, .sidebar-profile-button:focus-visible .sidebar-tier-tooltip { opacity: 1; }
+.sidebar-profile-menu { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 40; display: grid; gap: 10px; width: 220px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 14px 40px #0008; }
+.sidebar-profile-menu strong { font-size: 12px; }
+.sidebar-profile-menu > span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; }
+.sidebar-profile-menu a, .sidebar-profile-menu button { display: flex; align-items: center; gap: 8px; padding: 6px 0; border: 0; background: none; color: var(--text); font-size: 11px; text-decoration: none; text-align: left; cursor: pointer; }
+.sidebar-profile-menu a:hover, .sidebar-profile-menu button:hover { color: var(--accent); }
 .main-content { position: relative; z-index: 1; flex: 1; min-width: 0; min-height: 100vh; margin-left: var(--sidebar); }
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; min-height: 82px; padding: 0 32px; border-bottom: 1px solid var(--border); background: rgba(12,16,14,.9); backdrop-filter: blur(18px); }
 .topbar-heading { min-width: 0; }
@@ -218,6 +232,7 @@ td:first-child, th:first-child { padding-left: 0; } td:last-child, th:last-child
 @media (max-width: 1100px) { :root { --sidebar: 220px; }.stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.assistant-page { grid-template-columns: 1fr; }.assistant-prompts { order: 2; }.product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 820px) {
   .sidebar { position: fixed; inset: 8px 8px auto; width: auto; height: 58px; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; }
+  .sidebar-profile { flex: 0 0 auto; margin: 0 0 0 4px; padding: 0; border: 0; }.sidebar-profile-button { width: 40px; padding: 1px; }.sidebar-profile-copy, .sidebar-tier-tooltip { display: none; }
   .brand { min-width: 0; margin: 0; }.brand h2 { font-size: 15px; }.brand span, .menu-label, .sidebar-bottom { display: none; }
   .sidebar-nav { display: flex; flex: 1; justify-content: flex-end; gap: 3px; overflow-x: auto; }.nav-link { flex: 0 0 auto; min-height: 40px; padding: 9px 11px; font-size: 0; }.nav-link span { display: none; }.nav-link svg { flex: 0 0 auto; }.main-content { margin-left: 0; padding-top: 58px; }.topbar { min-height: 75px; padding: 0 18px; }.search-box { display: none; }.page-content { padding: 24px 18px 45px; }.dashboard-grid, .policy-layout { grid-template-columns: 1fr; }
 }

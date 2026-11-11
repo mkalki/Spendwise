@@ -7,12 +7,12 @@ export default function Pro() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function refresh() {
-    try { setMembership(await api.getProMembership()); }
-    catch (failure) { setError(failure.message); }
-  }
-
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    let active = true;
+    api.getProMembership().then((value) => { if (active) setMembership(value); })
+      .catch((failure) => { if (active) setError(failure.message); });
+    return () => { active = false; };
+  }, []);
 
   async function subscribe(plan) {
     setBusy(true); setError("");

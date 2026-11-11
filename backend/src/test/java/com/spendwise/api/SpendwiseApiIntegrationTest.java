@@ -32,6 +32,7 @@ import com.spendwise.common.security.GeminiUserRateLimiter;
 import com.spendwise.payment.integration.PayPalWebhookVerifier;
 import com.spendwise.payment.service.PayPalVaultService;
 import com.spendwise.payment.service.PayPalWebhookService;
+import com.spendwise.payment.service.ProMembershipService;
 import java.math.BigDecimal;
 import java.security.Principal;
 import java.util.List;
@@ -98,6 +99,9 @@ class SpendwiseApiIntegrationTest {
 
     @MockitoBean
     private PayPalVaultService payPalVaultService;
+
+    @MockitoBean
+    private ProMembershipService proMembershipService;
 
     @AfterEach
     void clearSecurityContext() {

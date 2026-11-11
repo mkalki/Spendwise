@@ -111,7 +111,9 @@ server-side capture verification succeeds. Monthly access costs $1.00 for the
 first paid month and $0.80 for later monthly payments. Annual access costs
 $6.00 for 12 months. Payments do not renew automatically. While a term is
 active, Spendwise per-user search rate limits are bypassed; external provider
-limits still apply.
+limits still apply. Free accounts may submit 20 shopping searches in any
+rolling 24-hour period; the next search is allowed as each search ages out of
+that window. The quota is persisted in PostgreSQL and enforced per account.
 
 ## Product search
 

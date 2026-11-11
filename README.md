@@ -215,6 +215,7 @@ k6 run load-tests/spendwise-api.js
 | PayPal webhook verification | Implemented at `POST /api/webhooks/paypal`; requires `PAYPAL_WEBHOOK_ID` from the registered PayPal webhook. |
 | Shopping preferences and search history | Preferences load automatically for searches; saved maximum price tightens the search cap and other preferences guide AI comparison. Customers can view and update them through the authenticated GET/PUT preferences APIs. |
 | Spendwise Pro | Manual PayPal merchant payments in USD: $1 for the first monthly term, $0.80 for later monthly renewals, or $6 for a 12-month term. Active Pro bypasses Spendwise per-user search limits; provider limits still apply. |
+| Free search quota | 20 searches per rolling 24 hours per account, stored in PostgreSQL; Pro bypasses the app-level quota while provider limits remain in force. |
 | Audit trail | Implemented for policy changes, search starts/results, candidate decisions, preference updates, checkout reservations, PayPal order creation and payment state changes, and verified webhook deliveries. Audit metadata omits raw search text and credentials. |
 | Error handling, validation, and Swagger | Implemented with stable JSON API errors and documented routes. |
 | Unit, controller, and database tests | Implemented; PostgreSQL Testcontainers coverage is skipped when Docker is unavailable. |

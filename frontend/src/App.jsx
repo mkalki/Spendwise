@@ -39,6 +39,10 @@ export default function App() {
   }, []);
 
   const ready = !checkingSession;
+  async function logout() {
+    try { await api.logout(); setUser(null); }
+    catch (error) { console.error("Logout failed:", error); }
+  }
 
   if (checkingSession) {
     return (
@@ -64,21 +68,11 @@ export default function App() {
     <div className="app-shell studio-shell" id="top">
       <ExperienceLoader ready={ready} />
 
-      <Sidebar />
+      <Sidebar user={user} onLogout={logout} />
 
       <main className="main-content">
 
-        <Topbar
-          user={user}
-          onLogout={async () => {
-            try {
-              await api.logout();
-              setUser(null);
-            } catch (error) {
-              console.error("Logout failed:", error);
-            }
-          }}
-        />
+        <Topbar />
 
         <div className="page-content">
 

@@ -161,6 +161,20 @@ export const api = {
     return request(`/v1/shopping/search/${searchSessionId}/recommendations`, { method: "POST" });
   },
 
+  getProMembership() {
+    return request("/payments/pro");
+  },
+
+  createProCheckout(plan) {
+    const key = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+      (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return request("/payments/pro/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+      body: JSON.stringify({ plan }),
+    });
+  },
+
   getCart() {
     return request("/v1/cart");
   },

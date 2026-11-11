@@ -9,6 +9,7 @@ import {
   ShoppingCart,
   Receipt,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 
 const menuItems = [
@@ -42,6 +43,7 @@ const menuItems = [
     path: "/transactions",
     icon: Receipt,
   },
+  { name: "Spendwise Pro", path: "/pro", icon: Sparkles },
 ];
 
 export default function Sidebar() {

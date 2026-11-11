@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import com.spendwise.payment.service.ProMembershipService;
 import org.springframework.util.StringUtils;
 
 @Component
@@ -19,19 +20,29 @@ public class Channel3UserRateLimiter {
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
     private final LongSupplier nanoTime;
     private final AtomicLong calls = new AtomicLong();
+    private final ProMembershipService memberships;
 
-    public Channel3UserRateLimiter() {
-        this(System::nanoTime);
+    public Channel3UserRateLimiter() { this(System::nanoTime, null); }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public Channel3UserRateLimiter(ProMembershipService memberships) {
+        this(System::nanoTime, memberships);
     }
 
     Channel3UserRateLimiter(LongSupplier nanoTime) {
+        this(nanoTime, null);
+    }
+
+    private Channel3UserRateLimiter(LongSupplier nanoTime, ProMembershipService memberships) {
         this.nanoTime = nanoTime;
+        this.memberships = memberships;
     }
 
     public void acquire(String userId) {
         if (!StringUtils.hasText(userId)) {
             throw new IllegalArgumentException("An authenticated user ID is required for rate limiting.");
         }
+        if (memberships != null && memberships.isActive(userId)) return;
         long now = nanoTime.getAsLong();
         Decision decision = new Decision();
         buckets.compute(userId, (key, bucket) -> {

@@ -100,6 +100,19 @@ satisfy `maxProductPrice <= maxOrderAmount <= weeklyBudget`. Country/currency
 must be supported by Channel3. Weekly spending is evaluated in the configured
 time zone.
 
+## Spendwise Pro
+
+`GET /api/payments/pro` returns whether the signed-in customer has an active Pro
+term, its expiration time, and the amount for the next manual monthly payment.
+`POST /api/payments/pro/checkout` accepts `{"plan":"MONTHLY"}` or
+`{"plan":"ANNUAL"}` and requires an `Idempotency-Key` header. It creates a USD
+PayPal merchant checkout; Pro access is granted only after the existing
+server-side capture verification succeeds. Monthly access costs $1.00 for the
+first paid month and $0.80 for later monthly payments. Annual access costs
+$6.00 for 12 months. Payments do not renew automatically. While a term is
+active, Spendwise per-user search rate limits are bypassed; external provider
+limits still apply.
+
 ## Product search
 
 `POST /api/v1/shopping/search`

@@ -30,6 +30,10 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     List<PaymentTransaction> findAllByOwnerIdOrderByCreatedAtDesc(String ownerId);
 
+    List<PaymentTransaction> findAllByOwnerIdAndProductIdStartingWithOrderByCreatedAtDesc(
+            String ownerId, String productIdPrefix);
+
+
     Optional<PaymentTransaction> findByOwnerIdAndIdempotencyKey(String ownerId, String idempotencyKey);
 
     @Modifying(clearAutomatically = true)
@@ -46,6 +50,7 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             select coalesce(sum(tx.amount), 0)
             from PaymentTransaction tx
             where tx.ownerId = :ownerId
+              and tx.productId not like 'SPENDWISE_PRO_%'
               and tx.status in ('COMPLETED', 'PARTIALLY_REFUNDED')
               and tx.completedAt >= :start
               and tx.completedAt < :end
@@ -59,6 +64,7 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             select count(tx)
             from PaymentTransaction tx
             where tx.ownerId = :ownerId
+              and tx.productId not like 'SPENDWISE_PRO_%'
               and tx.status in ('COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED', 'REVERSED')
               and tx.completedAt >= :start
               and tx.completedAt < :end
@@ -72,6 +78,7 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             select coalesce(sum(tx.amount), 0)
             from PaymentTransaction tx
             where tx.ownerId = :ownerId
+              and tx.productId not like 'SPENDWISE_PRO_%'
               and (
                 tx.status in ('REQUIRES_RECONCILIATION', 'CAPTURING')
                 or (
@@ -86,6 +93,7 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             select count(tx)
             from PaymentTransaction tx
             where tx.ownerId = :ownerId
+              and tx.productId not like 'SPENDWISE_PRO_%'
               and (
                 tx.status in ('REQUIRES_RECONCILIATION', 'CAPTURING')
                 or (

@@ -67,6 +67,7 @@ export default function CheckoutReturn() {
         <Link className="reset-button" to="/cart">
           <ArrowLeft size={16} /> Back to cart
         </Link>
+        <Link className="reset-button" to="/pro">Manage Spendwise Pro</Link>
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ import Cart from "./pages/Cart";
 import Transactions from "./pages/Transactions";
 import Landing from "./pages/Landing";
 import CheckoutReturn from "./pages/CheckoutReturn";
+import Pro from "./pages/Pro";
 import { api } from "./services/api";
 import AmbientScene from "./components/AmbientScene";
 import { ExperienceLoader } from "./components/ExperienceEffects";
@@ -100,6 +101,7 @@ export default function App() {
             />
 
             <Route path="/cart" element={<Cart key={user.id} />} />
+            <Route path="/pro" element={<Pro />} />
 
             <Route
               path="/transactions"

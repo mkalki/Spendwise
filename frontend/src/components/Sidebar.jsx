@@ -54,7 +54,12 @@ export default function Sidebar({ user, onLogout }) {
   const [membership, setMembership] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
-  useEffect(() => { api.getProMembership().then(setMembership).catch(() => setMembership({ pro: false })); }, [user?.id]);
+  useEffect(() => {
+    const refreshMembership = () => api.getProMembership().then(setMembership).catch(() => setMembership({ pro: false }));
+    refreshMembership();
+    window.addEventListener("spendwise:membership-updated", refreshMembership);
+    return () => window.removeEventListener("spendwise:membership-updated", refreshMembership);
+  }, [user?.id]);
   useEffect(() => {
     function closeOutside(event) {
       if (!profileRef.current?.contains(event.target)) setProfileOpen(false);

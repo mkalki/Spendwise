@@ -173,6 +173,10 @@ export const api = {
     return request("/payments/pro");
   },
 
+  getPaymentStatus(orderId) {
+    return request(`/payments/${encodeURIComponent(orderId)}`);
+  },
+
   createProCheckout(plan) {
     const key = Array.from(crypto.getRandomValues(new Uint8Array(16)),
       (byte) => byte.toString(16).padStart(2, "0")).join("");

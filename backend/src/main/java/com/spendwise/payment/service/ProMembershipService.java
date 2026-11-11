@@ -14,7 +14,7 @@ import com.spendwise.payment.repository.PaymentTransactionRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.time.Period;
+import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -102,8 +102,9 @@ public class ProMembershipService {
     }
 
     private Instant expiry(PaymentTransaction tx) {
+        var completedAtUtc = tx.getCompletedAt().atZone(ZoneOffset.UTC);
         return "SPENDWISE_PRO_ANNUAL".equals(tx.getProductId())
-                ? tx.getCompletedAt().plus(Period.ofYears(1))
-                : tx.getCompletedAt().plus(Period.ofMonths(1));
+                ? completedAtUtc.plusYears(1).toInstant()
+                : completedAtUtc.plusMonths(1).toInstant();
     }
 }

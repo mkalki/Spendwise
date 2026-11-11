@@ -6,6 +6,8 @@ export default function Pro() {
   const [membership, setMembership] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const monthlyPrice = membership?.nextMonthlyPrice || "1.00";
+  const isMonthlyRenewal = monthlyPrice === "0.80";
 
   useEffect(() => {
     let active = true;
@@ -20,6 +22,7 @@ export default function Pro() {
       const checkout = await api.createProCheckout(plan);
       if (!checkout.approvalUrl || !checkout.checkoutSessionId) throw new Error("PayPal did not return an approval link.");
       sessionStorage.setItem("spendwise_checkout_id", checkout.checkoutSessionId);
+      sessionStorage.setItem("spendwise_checkout_type", "pro");
       window.location.assign(checkout.approvalUrl);
     } catch (failure) { setError(failure.message); setBusy(false); }
   }
@@ -32,8 +35,8 @@ export default function Pro() {
     {error && <p role="alert" className="policy-message error-message">{error}</p>}
     <div className="product-grid">
       <article className="panel product-card"><div className="product-card-content">
-        <h3>Monthly</h3><strong className="product-price">${membership?.nextMonthlyPrice || "1.00"} {membership?.nextMonthlyPrice === "0.80" ? "renewal" : "first month"}</strong>
-        <p><Check size={14} /> Then ${membership?.nextMonthlyPrice || "0.80"} per month with manual renewal.</p>
+        <h3>Monthly</h3><strong className="product-price">${monthlyPrice} {isMonthlyRenewal ? "renewal" : "first month"}</strong>
+        <p><Check size={14} /> {isMonthlyRenewal ? "Monthly renewal is $0.80 with manual payment." : "First month is $1.00, then $0.80 per month with manual renewal."}</p>
         <button className="save-button" disabled={busy || membership?.pro} onClick={() => subscribe("MONTHLY")}>Pay monthly with PayPal</button>
       </div></article>
       <article className="panel product-card"><div className="product-card-content">

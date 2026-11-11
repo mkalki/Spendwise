@@ -2,6 +2,7 @@ package com.spendwise.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -266,6 +267,49 @@ class ShoppingPersistenceIntegrationTest {
     }
 
     @Test
+    void showsCheckoutBlocksAndEarlierSearchRejectionsOnlyToTheirOwner() throws Exception {
+        String owner = "blocked-purchase-owner";
+        spendingPolicyService.save(owner, new SpendingPolicyRequest(
+                new BigDecimal("40.00"), new BigDecimal("60.00"), new BigDecimal("150.00"),
+                3, "USD", "US", "UTC"));
+        var search = searchSessionRepository.save(new ShoppingSearchSession(
+                UUID.randomUUID(), owner, "headphones", "headphones", new BigDecimal("60.00")));
+        var candidate = candidateRepository.save(new ProductCandidate(UUID.randomUUID(), search, "headphones",
+                "Studio headphones", null, null, "store.example", "https://store.example/headphones",
+                new BigDecimal("35.00"), "USD", true, null));
+        candidateRepository.save(new ProductCandidate(UUID.randomUUID(), search, "unavailable",
+                "Sold-out headphones", null, null, "store.example", "https://store.example/sold-out",
+                new BigDecimal("25.00"), "USD", false, "Offer is not confirmed in stock."));
+        when(channel3Client.getProduct("headphones", "US", "USD")).thenReturn(objectMapper.readTree("""
+                {"offers":[{"domain":"store.example","url":"https://store.example/headphones",
+                  "availability":"InStock","price":{"price":45.00,"currency":"USD"}}]}
+                """));
+
+        var ownerLogin = oidcLogin().idToken(token -> token.subject(owner));
+        mvc.perform(post("/api/v1/checkout-sessions").with(ownerLogin).with(csrf())
+                .header("Idempotency-Key", "blocked-checkout").contentType("application/json")
+                .content("""
+                        {"searchSessionId":"%s","candidateId":"%s"}
+                        """.formatted(search.getId(), candidate.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("POLICY_LIMIT_EXCEEDED"));
+
+        String history = "/api/v1/transactions/blocked";
+        mvc.perform(get(history).with(ownerLogin)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.checkoutAttempts.length()").value(1))
+                .andExpect(jsonPath("$.checkoutAttempts[0].productName").value("Studio headphones"))
+                .andExpect(jsonPath("$.checkoutAttempts[0].amount").value("45.00"))
+                .andExpect(jsonPath("$.checkoutAttempts[0].reason").value("The product exceeds the maximum product price."))
+                .andExpect(jsonPath("$.rejectedOffers.length()").value(1))
+                .andExpect(jsonPath("$.rejectedOffers[0].reason").value("Offer is not confirmed in stock."));
+        mvc.perform(get(history).with(oidcLogin().idToken(token -> token.subject("other-shopper"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checkoutAttempts").isEmpty())
+                .andExpect(jsonPath("$.rejectedOffers").isEmpty());
+        mvc.perform(get(history)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void searchLoadsSavedPreferencesFromPostgresAndUsesThemForBudgetAndGeminiComparison() throws Exception {
         String owner = "preference-search-owner";
         spendingPolicyService.save(owner, new SpendingPolicyRequest(
@@ -275,7 +319,8 @@ class ShoppingPersistenceIntegrationTest {
                 java.util.List.of("laptops"), java.util.List.of("Acme"), java.util.List.of("preferred.example"),
                 java.util.List.of("quiet"), new BigDecimal("45.00"), "USD"));
         when(geminiService.extractShoppingIntent("Find a quiet laptop"))
-                .thenReturn(new GeminiShoppingIntent("quiet laptop", "laptop", null, null, null, java.util.List.of()));
+                .thenReturn(new GeminiShoppingIntent("quiet laptop", "laptop", null, null, "work",
+                        java.util.List.of("quiet")));
         when(channel3Client.search(anyString(), any(), anyString(), anyString())).thenReturn(objectMapper.readTree("""
                 {"products":[
                   {"id":"within-pref","title":"Acme Quiet Laptop","brands":[{"name":"Acme"}],
@@ -302,6 +347,11 @@ class ShoppingPersistenceIntegrationTest {
                         "Find a quiet laptop", com.spendwise.product.dto.ShoppingSortBy.AI_RECOMMENDED));
 
         assertThat(result.intent().requestedMaxPrice()).isEqualTo("45.00");
+        assertThat(result.intent().promptMaxPrice()).isNull();
+        assertThat(result.intent().effectiveMaxPrice()).isEqualTo("45.00");
+        assertThat(result.intent().category()).isEqualTo("laptop");
+        assertThat(result.intent().useCase()).isEqualTo("work");
+        assertThat(result.intent().preferences()).containsExactly("quiet");
         assertThat(result.eligibleCandidates()).hasSize(1);
         assertThat(result.eligibleCandidates().getFirst().price()).isEqualTo("42.00");
         assertThat(result.aiRanked()).isTrue();

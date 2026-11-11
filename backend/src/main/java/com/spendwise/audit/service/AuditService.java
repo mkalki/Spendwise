@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spendwise.audit.entity.AuditEvent;
 import com.spendwise.audit.repository.AuditEventRepository;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,11 @@ public class AuditService {
     public AuditService(AuditEventRepository repository, ObjectMapper objectMapper) {
         this.repository = repository;
         this.objectMapper = objectMapper;
+    }
+
+    @Transactional(readOnly = true)
+    public List<AuditEvent> recentEvents(String ownerId, String eventType) {
+        return repository.findTop5ByOwnerIdAndEventTypeOrderByCreatedAtDescIdDesc(ownerId, eventType);
     }
 
     @Transactional

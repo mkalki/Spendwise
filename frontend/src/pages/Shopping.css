@@ -30,6 +30,29 @@
 .product-details summary { cursor: pointer; font-size: .85rem; }
 .product-card-content .product-checkout-button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; }
 
+.intent-review { width: 100%; max-width: 100%; background: var(--surface); gap: 12px; }
+.intent-review h3, .intent-review p { margin: 0; }
+.intent-review dl { display: grid; gap: 10px; margin: 0; }
+.intent-review dl > div { display: grid; grid-template-columns: minmax(0, 8rem) minmax(0, 1fr); gap: 12px; }
+.intent-review dt { color: #aaa3b9; }
+.intent-review dd { margin: 0; overflow-wrap: anywhere; }
+.intent-review .save-button { display: inline-flex; align-items: center; gap: 8px; justify-self: start; }
+.comparison-tools { padding: 12px; border: 1px solid var(--border); background: #0e0e19; }
+.offer-comparison { margin-block: 16px; }
+.offer-comparison h3 { margin-bottom: 10px; }
+.comparison-scroll { overflow-x: auto; border: 1px solid var(--border); }
+.comparison-scroll table { width: 100%; border-collapse: collapse; }
+.comparison-scroll th, .comparison-scroll td {
+  padding: 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  font-size: .875rem;
+}
+.comparison-scroll th { min-width: 8rem; background: #171422; }
+.comparison-scroll td { min-width: 11rem; }
+
 .film-auth-overlay .film-auth-dialog { width: min(100%, 800px); margin: auto; }
 .auth-workspace { display: grid; grid-template-columns: 2fr 3fr; color: #f5effa; background: #11111d; border: 1px solid #ffffff37; box-shadow: 0 28px 90px #000a; }
 .auth-intro { padding: clamp(20px, 4vw, 38px); display: grid; align-content: center; justify-items: start; gap: 14px; background: radial-gradient(ellipse at 10% 10%, #ff47693c, transparent 63%), #171422; border-right: 1px solid #ffffff1c; }

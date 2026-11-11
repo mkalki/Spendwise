@@ -1,7 +1,9 @@
 package com.spendwise.audit.repository;
 
 import com.spendwise.audit.entity.AuditEvent;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AuditEventRepository extends JpaRepository<AuditEvent, Long> {
+    List<AuditEvent> findTop5ByOwnerIdAndEventTypeOrderByCreatedAtDescIdDesc(String ownerId, String eventType);
 }

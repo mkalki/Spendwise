@@ -222,3 +222,38 @@ k6 run load-tests/spendwise-api.js
 | Load testing | k6 script added for authenticated, database-backed API requests. |
 | Frontend | React app with sign-in, a spending dashboard, the shopping assistant, product filters and recommendations, a saved cart, and PayPal Sandbox checkout. |
 | Live Sandbox lifecycle test | Still needs a configured webhook, Sandbox buyer approval, and end-to-end confirmation in the developer account. |
+
+## Render backend and Vercel frontend
+
+The backend Blueprint is `render.yaml`; it creates the Docker API service and
+a PostgreSQL database. The frontend Vercel configuration is
+`frontend/vercel.json`; set the Vercel project's root directory to `frontend`.
+Vercel proxies `/api`, `/oauth2`, and `/login/oauth2` through to the Render API,
+so browser sessions and CSRF cookies stay on the frontend origin. Render
+auto-deploys only after the GitHub checks pass.
+
+On Render, set these URLs using the production Vercel domain:
+
+```text
+FRONTEND_ORIGIN=https://<your-vercel-domain>
+AUTH_SUCCESS_URL=https://<your-vercel-domain>/
+GOOGLE_REDIRECT_URI=https://<your-vercel-domain>/login/oauth2/code/google
+PAYPAL_RETURN_URL=https://<your-vercel-domain>/checkout/return
+PAYPAL_CANCEL_URL=https://<your-vercel-domain>/checkout/cancel
+PAYPAL_VAULT_RETURN_URL=https://<your-vercel-domain>/paypal/vault/return
+PAYPAL_VAULT_CANCEL_URL=https://<your-vercel-domain>/paypal/vault/cancel
+```
+
+In Google Cloud OAuth settings, add `GOOGLE_REDIRECT_URI` as an authorized
+redirect URI. Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`CHANNEL3_API_KEY`, `GEMINI_API_KEY`, `PAYPAL_CLIENT_ID`, and
+`PAYPAL_CLIENT_SECRET` as Render secrets. The PayPal credentials must be from a
+Sandbox REST app. Register a webhook at
+`https://spendwise-api.onrender.com/api/webhooks/paypal`, then set
+`PAYPAL_WEBHOOK_ID` if using webhooks.
+
+Do not put production credentials in the repository's `.env` or commit them.
+Set Render secrets in the Render dashboard. The Vercel frontend uses same-origin
+rewrites and needs no API key or backend URL environment variable. Render's
+free Postgres plan expires after 30 days and has no backups; use a paid database
+for data that must persist.

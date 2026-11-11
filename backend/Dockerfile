@@ -10,8 +10,10 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 RUN addgroup -S spendwise && adduser -S spendwise -G spendwise
 COPY --from=build /workspace/target/spendwise-api-0.1.0-SNAPSHOT.jar ./app.jar
+COPY backend/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 USER spendwise
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+EXPOSE 10000
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 

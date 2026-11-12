@@ -248,7 +248,7 @@ PAYPAL_VAULT_CANCEL_URL=https://<your-vercel-domain>/paypal/vault/cancel
 
 Add the exact `GOOGLE_REDIRECT_URI` to the Google OAuth client. Set provider secrets in Render; do not commit them or place them in frontend variables. PayPal client credentials must come from a Sandbox REST app. Register the PayPal webhook against the public Render API URL and set its registration ID as `PAYPAL_WEBHOOK_ID`.
 
-Render's free web services sleep after 15 minutes without inbound traffic. The scheduled health check reduces cold starts, but cannot guarantee uninterrupted availability; use an always-on paid web service for guaranteed readiness. A free Render PostgreSQL database expires 30 days after creation and has no backups; use a paid database for data that must persist.
+Render's free web services sleep after 15 minutes without inbound traffic. The first request then waits for the service to start; Spendwise's Render logs recorded a cold start of about 3 minutes 15 seconds. The scheduled health check reduces cold starts, but GitHub may delay it and Render may restart free services at any time, so it cannot guarantee uninterrupted availability. Use an always-on paid web service to avoid the free-tier sleep delay. A free Render PostgreSQL database expires 30 days after creation and has no backups; use a paid database for data that must persist.
 
 ## Project structure
 

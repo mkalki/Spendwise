@@ -226,6 +226,7 @@ GitHub Actions workflows are in [`.github/workflows/`](.github/workflows/):
 
 - `ci.yml` builds and verifies the backend, runs frontend tests and lint, builds the frontend, validates the OpenAPI document and Docker Compose configuration, and builds the backend Docker image.
 - `cd.yml` checks the deployed Spendwise frontend and API health after a Render deployment; it can also be run manually. Render and Vercel handle the actual deployments from their connected repositories.
+- `keep-render-api-warm.yml` requests the Render API health endpoint every 10 minutes to reduce free-tier cold starts. GitHub scheduled runs can be delayed, and Render may restart free services at any time, so this is a best-effort warm-up.
 
 The deployment check verifies availability. It does not run a live PayPal transaction or a live Gemini/Channel3 search.
 
@@ -247,7 +248,7 @@ PAYPAL_VAULT_CANCEL_URL=https://<your-vercel-domain>/paypal/vault/cancel
 
 Add the exact `GOOGLE_REDIRECT_URI` to the Google OAuth client. Set provider secrets in Render; do not commit them or place them in frontend variables. PayPal client credentials must come from a Sandbox REST app. Register the PayPal webhook against the public Render API URL and set its registration ID as `PAYPAL_WEBHOOK_ID`.
 
-Render's free web services sleep after 15 minutes without inbound traffic, so the first request after inactivity can take about a minute to wake the service. A free Render PostgreSQL database expires 30 days after creation and has no backups; use a paid database for data that must persist.
+Render's free web services sleep after 15 minutes without inbound traffic. The scheduled health check reduces cold starts, but cannot guarantee uninterrupted availability; use an always-on paid web service for guaranteed readiness. A free Render PostgreSQL database expires 30 days after creation and has no backups; use a paid database for data that must persist.
 
 ## Project structure
 
@@ -270,3 +271,7 @@ Render's free web services sleep after 15 minutes without inbound traffic, so th
 - A full Sandbox webhook lifecycle check requires a Sandbox buyer, successful checkout approval, and delivery to the registered public webhook.
 - Add durable sessions across API restarts and richer provider latency metrics.
 - Move to production hosting with a persistent database plan and backups before relying on stored user data.
+
+## License
+
+Spendwise is licensed under the [MIT License](LICENSE).

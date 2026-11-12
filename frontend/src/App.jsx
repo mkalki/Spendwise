@@ -22,8 +22,6 @@ import { ExperienceLoader } from "./components/ExperienceEffects";
 export default function App() {
   const location = useLocation();
   const [user, setUser] = useState(null);
-  const [checkingSession, setCheckingSession] = useState(true);
-  const [slowSession, setSlowSession] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
@@ -33,8 +31,6 @@ export default function App() {
     let cancelled = false;
     let controller;
     let retryTimer;
-    const slowTimer = window.setTimeout(() => setSlowSession(true), 12000);
-
     async function checkSession() {
       controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 30000);
@@ -42,15 +38,12 @@ export default function App() {
         const currentUser = await api.getCurrentUser({ signal: controller.signal });
         if (!cancelled) {
           setUser(currentUser);
-          setCheckingSession(false);
         }
       } catch (error) {
         if (cancelled) return;
         if (error.status === 401) {
-          setCheckingSession(false);
           return;
         }
-        setSlowSession(true);
         retryTimer = window.setTimeout(checkSession, 3000);
       } finally {
         window.clearTimeout(timeout);
@@ -61,35 +54,19 @@ export default function App() {
     return () => {
       cancelled = true;
       controller?.abort();
-      window.clearTimeout(slowTimer);
       window.clearTimeout(retryTimer);
     };
   }, []);
 
-  const ready = !checkingSession || slowSession;
   async function logout() {
     try { await api.logout(); setUser(null); }
     catch (error) { console.error("Logout failed:", error); }
   }
 
-  if (checkingSession) {
-    return (
-      <>
-        <ExperienceLoader ready={ready} />
-        <AmbientScene />
-        <main className="page-content"><div className="panel" role="status">
-          {slowSession
-            ? "Starting the Spendwise server. This page will continue when it is ready."
-            : "Checking your session..."}
-        </div></main>
-      </>
-    );
-  }
-
   if (!user) {
     return (
       <>
-        <ExperienceLoader ready={ready} />
+        <ExperienceLoader ready={true} />
         <AmbientScene />
         <Landing />
       </>
@@ -98,7 +75,7 @@ export default function App() {
 
   return (
     <div className="app-shell studio-shell" id="top">
-      <ExperienceLoader ready={ready} />
+      <ExperienceLoader ready={true} />
 
       <Sidebar user={user} onLogout={logout} />
 

@@ -1,0 +1,70 @@
+name: k6 API load test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-health-load:
+    name: Measure Render API health endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SPENDWISE_BASE_URL: https://spendwise-api-88bt.onrender.com
+      SPENDWISE_LOAD_PATH: /api/health
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Wake API before measurement
+        run: >-
+          curl --fail --silent --show-error --location
+          --max-time 270 --retry 2 --retry-delay 10 --retry-all-errors
+          --retry-max-time 300
+          "$SPENDWISE_BASE_URL$SPENDWISE_LOAD_PATH"
+
+      - name: Run k6 and publish measured summary
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/k6-results"
+          set +e
+          docker run --rm --pull=always \
+            -v "$GITHUB_WORKSPACE/load-tests:/scripts:ro" \
+            -v "$RUNNER_TEMP/k6-results:/results" \
+            -e SPENDWISE_BASE_URL="$SPENDWISE_BASE_URL" \
+            -e SPENDWISE_LOAD_PATH="$SPENDWISE_LOAD_PATH" \
+            grafana/k6:2.3.0 run \
+            --summary-export=/results/summary.json \
+            /scripts/spendwise-api.js
+          k6_status=$?
+
+          python3 - "$RUNNER_TEMP/k6-results/summary.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+          with open(sys.argv[1], encoding="utf-8") as report_file:
+              report = json.load(report_file)
+
+          metrics = report["metrics"]
+          latency = metrics["http_req_duration"]["values"]
+          requests = metrics["http_reqs"]["values"]
+          failed = metrics["http_req_failed"]["values"]["rate"]
+
+          print("## k6 API health load run")
+          print()
+          print(f"- Run time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+          print("- Target: `GET https://spendwise-api-88bt.onrender.com/api/health`")
+          print("- Profile: 10 VUs for 30s, ramp to 40 VUs for 60s, ramp down over 30s")
+          print("- Warm-up: one successful health request before measurement")
+          print(f"- p95 latency: {latency['p(95)']:.2f} ms")
+          print(f"- Throughput: {requests['rate']:.2f} requests/second ({int(requests['count'])} requests)")
+          print(f"- Failed request rate: {failed * 100:.3f}%")
+          print()
+          print("This is a health-endpoint measurement; it does not measure authenticated search, database reads, or third-party provider latency.")
+          PY
+
+          exit "$k6_status"

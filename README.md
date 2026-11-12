@@ -18,13 +18,18 @@ Spendwise is a policy-aware AI shopping assistant built for the hackathon. It he
 - [CI/CD](#cicd)
 - [Render and Vercel deployment](#render-and-vercel-deployment)
 - [Project structure](#project-structure)
-- [Future enhancements](#future-enhancements)
+- [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
 
 ## Overview
 
 Spendwise combines product discovery with explicit spending controls. Each account has a spending policy that can limit per-item price, order amount, weekly budget, and weekly order count. Before checkout, the backend rechecks the selected offer and reserves the required budget and order capacity.
 
 Product data comes from Channel3. Gemini can structure the request and rank the returned candidates, but it cannot invent product listings or override policy decisions. Payments use PayPal Orders v2 in Sandbox mode.
+
+### Live demo availability
+
+The frontend is hosted on Vercel, while the API and PostgreSQL database use Render's free tier. The API sleeps after 15 minutes without traffic; Spendwise's logs recorded a cold start of about 3 minutes 15 seconds. A scheduled health check attempts to keep it warm, but scheduled jobs can be delayed and Render can restart free services. The free database expires after 30 days. Google OAuth, Gemini, Channel3, and PayPal Sandbox credentials are needed for their respective live flows, so missing credentials or provider outages can limit the demo. Use the local setup below if the hosted demo is unavailable.
 
 ### User flow
 
@@ -81,7 +86,9 @@ The backend is organized into feature modules with controller, service, reposito
 - Channel3 search with filters, saved preferences, and search history.
 - Backend eligibility checks for offers, with rejected offers and policy reasons retained for review.
 - Cart and checkout flow with idempotency keys, budget reservations, and serialized capture handling.
+- Multi-item carts, saved delivery and billing details, profile name editing, and account settings.
 - PayPal Sandbox order creation, capture, status reconciliation, and signed webhook verification.
+- Spendwise Pro monthly and annual plans with manual PayPal renewal.
 - Transaction summaries and audit events for searches, policy decisions, and payment state changes.
 - OpenAPI documentation and automated backend/frontend checks.
 
@@ -263,14 +270,17 @@ Render's free web services sleep after 15 minutes without inbound traffic. The f
 └── docker-compose.yml        Local PostgreSQL and backend services
 ```
 
-## Future enhancements
+## Known limitations
 
-- PayPal Sandbox transactions are test transactions; live payments require a separate production PayPal app and launch review.
+- PayPal Sandbox transactions are tests; they do not buy products from retailers. Live payments require a separate production PayPal app and launch review.
 - Channel3 availability, product coverage, pricing, and latency depend on the external provider.
-- Render free services can sleep, and the free PostgreSQL instance expires after 30 days.
+- The Render free API sleeps after inactivity, and its free PostgreSQL database expires after 30 days. See [Live demo availability](#live-demo-availability) and [Render and Vercel deployment](#render-and-vercel-deployment).
 - A full Sandbox webhook lifecycle check requires a Sandbox buyer, successful checkout approval, and delivery to the registered public webhook.
+
+## Roadmap
+
 - Add durable sessions across API restarts and richer provider latency metrics.
-- Move to production hosting with a persistent database plan and backups before relying on stored user data.
+- Move to always-on hosting and a persistent database plan with backups before relying on stored user data.
 
 ## License
 

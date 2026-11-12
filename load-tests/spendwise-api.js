@@ -22,7 +22,7 @@ export default function () {
     headers: sessionCookie ? { Cookie: sessionCookie } : {},
   });
   check(response, {
-    'authenticated API request succeeds': (res) => res.status === 200,
+    'API request succeeds': (res) => res.status === 200,
   });
   sleep(0.2);
 }

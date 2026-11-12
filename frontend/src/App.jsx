@@ -23,23 +23,50 @@ export default function App() {
   const location = useLocation();
   const [user, setUser] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [slowSession, setSlowSession] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [location.pathname]);
 
   useEffect(() => {
-    api.getCurrentUser()
-      .then(setUser)
-      .catch((error) => {
-        if (error.status !== 401) {
-          console.error("Session check failed:", error);
+    let cancelled = false;
+    let controller;
+    let retryTimer;
+    const slowTimer = window.setTimeout(() => setSlowSession(true), 12000);
+
+    async function checkSession() {
+      controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 30000);
+      try {
+        const currentUser = await api.getCurrentUser({ signal: controller.signal });
+        if (!cancelled) {
+          setUser(currentUser);
+          setCheckingSession(false);
         }
-      })
-      .finally(() => setCheckingSession(false));
+      } catch (error) {
+        if (cancelled) return;
+        if (error.status === 401) {
+          setCheckingSession(false);
+          return;
+        }
+        setSlowSession(true);
+        retryTimer = window.setTimeout(checkSession, 3000);
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    checkSession();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(retryTimer);
+    };
   }, []);
 
-  const ready = !checkingSession;
+  const ready = !checkingSession || slowSession;
   async function logout() {
     try { await api.logout(); setUser(null); }
     catch (error) { console.error("Logout failed:", error); }
@@ -50,7 +77,11 @@ export default function App() {
       <>
         <ExperienceLoader ready={ready} />
         <AmbientScene />
-        <main className="page-content"><div className="panel">Checking your session...</div></main>
+        <main className="page-content"><div className="panel" role="status">
+          {slowSession
+            ? "Starting the Spendwise server. This page will continue when it is ready."
+            : "Checking your session..."}
+        </div></main>
       </>
     );
   }

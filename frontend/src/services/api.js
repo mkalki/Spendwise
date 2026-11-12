@@ -122,8 +122,12 @@ function toBackendPolicy(policy) {
 
 export const api = {
 
-  async getCurrentUser() {
-    return request("/auth/me");
+  async getCurrentUser(options = {}) {
+    const user = await request("/auth/me", options);
+    if (!user || typeof user !== "object" || !user.id) {
+      throw new Error("Session response is unavailable.");
+    }
+    return user;
   },
 
   async updateProfile(name) {

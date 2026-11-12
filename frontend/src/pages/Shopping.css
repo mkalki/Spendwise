@@ -67,7 +67,6 @@
 .auth-mode button[aria-pressed="true"] { color: #fff; background: #322439; box-shadow: inset 0 -2px #ff4769; }
 .auth-google, .auth-credentials > .save-button { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .auth-google span { color: #ff9cb3; font-weight: 700; }
-.auth-divider { text-align: center; color: #afa4bb; font-size: .85rem; }
 
 @media (max-width: 940px) { .shop-page { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 620px) {

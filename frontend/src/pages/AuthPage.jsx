@@ -24,7 +24,6 @@ export default function AuthPage() {
           <button type="button" aria-pressed={!isLogin} onClick={() => setMode("signup")}>Register</button>
         </div>
         <h3 id="auth-title">{isLogin ? "Sign in to Spendwise" : "Create your account"}</h3>
-        <p className="auth-divider">Continue securely with your Google account</p>
         <a className="reset-button auth-google" href={isLogin ? "/api/auth/google/login" : "/api/auth/google/signup"}>
           <span aria-hidden="true">G</span> {isLogin ? "Sign in with Google" : "Register with Google"} <ArrowRight size={15} />
         </a>

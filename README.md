@@ -74,6 +74,7 @@ The backend is organized into feature modules with controller, service, reposito
 | Product search | Channel3 API |
 | Payments | PayPal Orders v2 Sandbox and webhooks |
 | API docs | OpenAPI and Swagger UI |
+| API testing | Postman |
 | Containers | Docker and Docker Compose |
 | Hosting | Render API and PostgreSQL; Vercel frontend |
 | CI | GitHub Actions |
@@ -130,7 +131,7 @@ Set `CHANNEL3_API_KEY` to enable live product search. Search requests are limite
 
 ### Gemini
 
-Gemini structures shopping prompts and may rank eligible Channel3 candidates. The deployed backend uses Gemini Flash-Lite for lower-latency prompt interpretation. Set `GEMINI_API_KEY` to enable Gemini features. The key stays on the backend and is never sent to the browser.
+The Gemini API structures shopping prompts and may rank eligible Channel3 candidates. The model is configurable with `GEMINI_MODEL`; set `GEMINI_API_KEY` to enable Gemini features. The key stays on the backend and is never sent to the browser.
 
 Gemini does not decide whether an offer is eligible, perform checkout, or supply product facts. If Gemini is slow or unavailable, the request can fail or use the supported keyword fallback paths.
 
@@ -138,7 +139,13 @@ Gemini does not decide whether an offer is eligible, perform checkout, or supply
 
 Checkout is configured for PayPal Sandbox. A Sandbox approval and capture are for testing the payment flow; they do not purchase the product from the retailer. Actual product purchases happen on the retailer's site.
 
-Set `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` from the same Sandbox REST app. To enable webhooks, register the public HTTPS endpoint `https://<render-api-host>/api/webhooks/paypal` and set `PAYPAL_WEBHOOK_ID` to the webhook registration ID. Do not use an individual webhook event ID. The webhook handler verifies each event with PayPal before applying it.
+The backend authenticates with PayPal Sandbox using OAuth 2.0 and the credentials from a Sandbox REST app. It uses the PayPal Orders v2 API to create orders, capture shopper-approved payments, and reconcile order status. The optional saved payment method flow uses PayPal Vault. To enable webhooks, register the public HTTPS endpoint `https://<render-api-host>/api/webhooks/paypal` and set `PAYPAL_WEBHOOK_ID` to the webhook registration ID. Do not use an individual webhook event ID. The backend verifies webhook signatures with PayPal before applying events.
+
+These Sandbox flows demonstrate payment processing only; they do not place an order with a retailer or transfer money in a live transaction.
+
+### Postman API testing
+
+We used Postman during development to send requests to and check the REST API endpoints, including the documented shopping, policy, cart, and checkout routes. The OpenAPI definition is available at `/v3/api-docs` when the backend is running, and Swagger UI is available at `/swagger-ui/index.html`.
 
 ## Getting started
 
@@ -285,4 +292,4 @@ Render's free web services sleep after 15 minutes without inbound traffic. The f
 
 ## License
 
-Spendwise is licensed under the [MIT License](LICENSE).
+Spendwise is licensed under the [MIT License](LICENSE) (SPDX identifier `MIT`), an OSI-approved open source license. The license text is included in the repository root.

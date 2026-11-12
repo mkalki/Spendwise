@@ -232,6 +232,12 @@ Vercel proxies `/api`, `/oauth2`, and `/login/oauth2` through to the Render API,
 so browser sessions and CSRF cookies stay on the frontend origin. Render
 auto-deploys only after the GitHub checks pass.
 
+Vercel deploys `main` through its Git integration. After Render reports a
+successful `main - spendwise-api` deployment, `.github/workflows/cd.yml` checks
+the public `/assistant` route and `/api/health` through Vercel. It can also be
+run manually from GitHub Actions. The workflow checks availability; Render and
+Vercel remain responsible for starting deployments.
+
 On Render, set these URLs using the production Vercel domain:
 
 ```text

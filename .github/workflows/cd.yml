@@ -1,0 +1,42 @@
+name: CD
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: true
+
+jobs:
+  smoke-test:
+    name: Verify production
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment.environment == 'main - spendwise-api')
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FRONTEND_URL: https://spendwise-two-gilt.vercel.app
+
+    steps:
+      - name: Check public app route
+        shell: bash
+        run: |
+          page=$(curl --fail --silent --show-error --location --max-time 30 \
+            --retry 20 --retry-delay 15 --retry-all-errors \
+            "$FRONTEND_URL/assistant")
+          grep -Fq '<div id="root"></div>' <<< "$page"
+
+      - name: Check API through frontend proxy
+        shell: bash
+        run: |
+          health=$(curl --fail --silent --show-error --location --max-time 30 \
+            --retry 20 --retry-delay 15 --retry-all-errors \
+            "$FRONTEND_URL/api/health")
+          HEALTH_JSON="$health" python3 -c \
+            'import json, os; assert json.loads(os.environ["HEALTH_JSON"]) == {"service": "spendwise-api", "status": "ok"}'

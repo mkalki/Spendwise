@@ -234,6 +234,7 @@ GitHub Actions workflows are in [`.github/workflows/`](.github/workflows/):
 - `ci.yml` builds and verifies the backend, runs frontend tests and lint, builds the frontend, validates the OpenAPI document and Docker Compose configuration, and builds the backend Docker image.
 - `cd.yml` checks the deployed Spendwise frontend and API health after a Render deployment; it can also be run manually. Render and Vercel handle the actual deployments from their connected repositories.
 - `keep-render-api-warm.yml` requests the Render API health endpoint every 10 minutes to reduce free-tier cold starts. GitHub scheduled runs can be delayed, and Render may restart free services at any time, so this is a best-effort warm-up.
+- `k6-api-load.yml` runs weekly on Mondays at 09:17 UTC and can also be started manually. It ramps from 10 to 40 virtual users against `GET /api/health` for about two minutes, then publishes measured p95 latency, requests per second, and failure rate in the GitHub Actions run summary. This measures API health response capacity, not authenticated shopping searches, database queries, or provider latency.
 
 The deployment check verifies availability. It does not run a live PayPal transaction or a live Gemini/Channel3 search.
 

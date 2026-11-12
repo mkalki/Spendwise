@@ -1,6 +1,8 @@
 name: k6 API load test
 
 on:
+  schedule:
+    - cron: "17 9 * * 1"
   workflow_dispatch:
 
 permissions:

@@ -1,244 +1,239 @@
 # Spendwise
 
-Spendwise is a policy-driven AI shopping assistant. It helps people discover and compare products while enforcing spending limits in the backend before checkout.
+Spendwise is a policy-aware AI shopping assistant built for the hackathon. It helps people find and compare products while enforcing personal spending limits before checkout. Gemini interprets shopping requests, Channel3 supplies product listings, and the backend policy engine determines which offers are eligible. Users review the options and approve any payment through PayPal Sandbox.
 
-**Core rule:** AI recommends. The policy engine decides. The user approves. PayPal processes a clearly labelled Sandbox payment.
+**AI recommends. Spendwise enforces the policy. The user approves.** A PayPal Sandbox payment is a payment test; it does not purchase the product from its retailer.
 
-Channel3 discovery links and a PayPal Sandbox payment are separate actions: the Sandbox payment does not buy the product from its retailer.
+## Contents
 
-## Current stack
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Key features](#key-features)
+- [System design](#system-design)
+- [Integrations](#integrations)
+- [Getting started](#getting-started)
+- [API documentation](#api-documentation)
+- [Testing](#testing)
+- [CI/CD](#cicd)
+- [Render and Vercel deployment](#render-and-vercel-deployment)
+- [Project structure](#project-structure)
+- [Future enhancements](#future-enhancements)
 
-- Java 21, Spring Boot 3.5, Maven, PostgreSQL
-- React and Vite frontend
-- Channel3 product discovery and PayPal Orders v2 Sandbox integrations
-- Gemini intent extraction and ID-only product ranking over actual Channel3 search results
+## Overview
 
-## Local setup
+Spendwise combines product discovery with explicit spending controls. Each account has a spending policy that can limit per-item price, order amount, weekly budget, and weekly order count. Before checkout, the backend rechecks the selected offer and reserves the required budget and order capacity.
 
-1. Copy `.env.example` to `.env` and set local PostgreSQL credentials plus any provider credentials you plan to use.
-2. Start PostgreSQL and the API with `docker compose up -d --build`. Compose starts a PostgreSQL 18 container with a named persistent volume, waits for its health check, then starts the backend against that database.
-3. Flyway applies pending migrations from `backend/src/main/resources/db/migration` on API startup; Hibernate validates the mapped schema and does not create tables. Add schema changes as new `V2__...sql`, `V3__...sql` files; do not edit a migration after it has run in a shared database.
-4. Check the API at `http://localhost:8080/api/health` and PostgreSQL on `localhost:${POSTGRES_PORT:-5432}`.
-5. From the repository root, install frontend dependencies with `npm --prefix frontend ci` and start Vite with `npm --prefix frontend run dev`. Open `http://localhost:5173`.
+Product data comes from Channel3. Gemini can structure the request and rank the returned candidates, but it cannot invent product listings or override policy decisions. Payments use PayPal Orders v2 in Sandbox mode.
 
-### Google sign-in
+### User flow
 
-Create a Google OAuth 2.0 Web application client and add
-`http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI.
-Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` before starting the
-backend. The frontend origin and post-login destination are configured with
-`FRONTEND_ORIGIN` and `AUTH_SUCCESS_URL`. Use HTTPS and set
-`SESSION_COOKIE_SECURE=true` outside local development.
+1. Sign in with Google.
+2. Set spending limits and describe a product to find.
+3. Review Channel3 results and the policy eligibility of each offer.
+4. Add an eligible offer to the cart and approve a PayPal Sandbox checkout.
+5. Spendwise verifies the payment state and updates the transaction record.
 
-Start sign-in from the frontend at `http://localhost:5173`. The browser opens
-`/api/auth/google/login` on the frontend origin and Vite proxies the OAuth
-requests to Spring. After Google verifies the user, Spring creates a
-server-side session and redirects to `AUTH_SUCCESS_URL`.
+## Architecture
 
-In production, proxy `/api/*`, `/oauth2/*`, and `/login/oauth2/*` on the public
-frontend origin to Spring. Set `FRONTEND_ORIGIN` to that HTTPS origin,
-`AUTH_SUCCESS_URL` to the frontend URL users should land on, and
-`GOOGLE_REDIRECT_URI` to the public `/login/oauth2/code/google` URL. Register
-that exact callback URL in the Google OAuth client.
+```text
+Browser (React / Vercel)
+       │ same-origin /api, OAuth, and session requests
+       ▼
+Spring Boot API (Render)
+  ├── Google OAuth and server-side session
+  ├── Gemini ── request interpretation and candidate ranking
+  ├── Channel3 ── product listings and offers
+  ├── Policy engine ── eligibility and checkout limits
+  └── PayPal Sandbox ── order, capture, and verified webhooks
+       │
+       ▼
+PostgreSQL (Render or local Docker Compose)
+  ├── accounts and policies
+  ├── searches, candidates, and cart
+  ├── checkout and transaction state
+  └── audit events
+```
 
-The frontend can fetch `/api/auth/me` with credentials to read the signed-in
-user, and call `POST /api/auth/logout` with the CSRF header/token obtained from
-`GET /api/auth/csrf`. The session is the authentication credential; do not put
-OAuth access tokens in browser storage.
+The backend is organized into feature modules with controller, service, repository, and integration layers. Flyway owns database schema changes; Hibernate validates the mapped schema at startup.
 
-### Google accounts
+## Tech stack
 
-Google OAuth is the only supported registration and sign-in method. Start it
-at `/api/auth/google/login` or `/api/auth/google/signup`; both use Google, and
-the first successful sign-in creates the Spendwise account. Google must report
-a verified email address. Existing password accounts are linked to Google the
-first time the same verified Google email signs in; their Spendwise data remains
-attached to the account.
-
-### Cart and checkout details
-
-The same account sees the same cart, delivery address, and billing address on
-devices connected to the same Spendwise deployment. Separate local Docker
-databases have separate accounts and carts, even if the email addresses match.
-
-Add an eligible offer from Products, then open Cart and select an offer to
-check out. Spendwise rechecks the offer and spending policy before sending you
-to PayPal Sandbox. The cart can hold multiple offers. Each Sandbox checkout
-handles one offer, and the retailer link is where actual purchases are made.
-Payment credentials are entered on PayPal. Spendwise saves only the address
-details entered in the cart.
-
-Set `CHANNEL3_API_KEY` to enable live shopping search and `PAYPAL_CLIENT_ID` /
-`PAYPAL_CLIENT_SECRET` to enable Sandbox checkout. Set `PAYPAL_WEBHOOK_ID` to
-the webhook registration ID created under the same PayPal Sandbox REST app as
-the client ID and secret. Do not use a webhook event ID (those start with
-`WH-`). Register a public HTTPS URL pointing to `POST /api/webhooks/paypal`;
-PayPal cannot deliver to localhost. Configure the corresponding return/cancel
-URLs for your frontend. Keep real values in `.env`, which is
-ignored by Git. API contracts and examples are in `docs/api-contracts.md`.
-Channel3 searches request 10 provider results by default and are limited to 100
-requests per minute per signed-in user. Gemini endpoints are limited to 20
-requests per minute per signed-in user. External requests use configurable
-5-second connect and 20-second response timeouts by default. Read-only Channel3
-calls and Gemini calls retry once on transient HTTP statuses; PayPal operations
-do not retry uncertain network failures.
-
-### Gemini connectivity
-
-Set `GEMINI_API_KEY` in `.env` to enable the authenticated
-`POST /api/v1/ai/generate` endpoint. `GEMINI_MODEL` defaults to
-`gemini-3.8-flash`. The backend sends prompts to Gemini using Spring `RestClient`;
-the key stays on the server. The generic generation endpoint is separate from
-Channel3. Product search uses Gemini to structure the request, calls Channel3
-for current offers, and can ask Gemini to rank only returned candidate IDs.
-Product titles, prices, merchants, availability, and URLs always come from
-Channel3. Customers can select `LOWEST_PRICE`, `BEST_MATCH`, or
-`AI_RECOMMENDED` and filter by price, category, retailer, availability, and
-sale status. Channel3's documented product response does not expose ratings,
-so top-rated sorting is unavailable. Swagger UI is available at
-`http://localhost:8080/swagger-ui/index.html`.
-
-PayPal webhooks are received at `POST /api/webhooks/paypal`. The endpoint is
-public for PayPal delivery, but verifies the transmission headers and exact
-received event body with PayPal before processing. Supported checkout/capture
-events reconcile against PayPal order status; refund/reversal events fetch the
-capture from PayPal and check its ID, order ID, amount, and currency before
-updating the transaction. Unknown event types are acknowledged after signature
-verification without changing payment state. Partial refunds keep the original
-order amount counted against weekly spend (a conservative limit); full refunds
-and reversals no longer count as spend. Capture requests are serialized per
-order; a second request while one is in progress receives a conflict.
-
-## Project layout
-
-- `backend/` — Spring Boot API
-- `backend/Dockerfile` — backend build and runtime image
-- `docs/api-contracts.md` — frontend/backend response contracts
-- `docker-compose.yml` — local PostgreSQL service
-- `spendwise-postgres-data` — persistent local PostgreSQL data volume
-- `backend/src/main/resources/db/migration/` — versioned Flyway SQL migrations
-- `load-tests/spendwise-api.js` — k6 load test for an authenticated API route
-
-The first migration creates `spending_policies`, `payment_transactions`, and `audit_events`, then seeds the demo policy ($60 per item, $100 per order, $150 per week, one order per week, USD/US).
-
-## Current status
-
-The backend exposes these authenticated, owner-scoped frontend APIs under
-`/api/v1`:
-
-| API | Purpose |
+| Area | Technology |
 | --- | --- |
-| `GET/PUT /policies/active` | Read or update the signed-in user's spending limits. |
-| `POST /shopping/search` | Search Channel3 using customer filters and return eligible and rejected offers in the selected ranking order. |
-| `GET /shopping/preferences` | Read the signed-in user's saved shopping preferences. |
-| `PUT /shopping/preferences` | Save preferred categories, brands, retailers, keywords, and an optional budget. |
-| `GET /shopping/search-history` | List the signed-in user's past searches (`page` defaults to 0; `size` defaults to 20 and is capped at 100). |
-| `POST /checkout-sessions` | Recheck an offer and policy, reserve weekly budget/order capacity, then create a PayPal Sandbox order. Requires `Idempotency-Key`. |
-| `POST /checkout-sessions/{id}/capture` | Capture the user's approved Sandbox order. |
-| `POST /checkout-sessions/{id}/cancel` | Cancel checkout and release its reservation only when payment state is confirmed. |
-| `POST /api/payments/create` | Create an owner-scoped PayPal Sandbox order from a stored, policy-eligible search candidate. Requires `Idempotency-Key`; returns the PayPal approval URL. |
-| `POST /api/payments/{orderId}/capture` | Capture the owner's approved PayPal order and persist the verified result. |
-| `GET /api/payments/{orderId}` | Read PayPal status and reconcile it with the owner-scoped payment record. |
-| `GET /transactions` | List the signed-in user's transactions. |
-| `GET /transactions/summary` | Return weekly spend, active reservations, remaining budget, and order counts. |
+| Backend | Java 21, Spring Boot 3.5, Spring Security, Maven |
+| Frontend | React, Vite |
+| Database | PostgreSQL, Spring Data JPA, Hibernate |
+| Migrations | Flyway |
+| AI | Gemini API |
+| Product search | Channel3 API |
+| Payments | PayPal Orders v2 Sandbox and webhooks |
+| API docs | OpenAPI and Swagger UI |
+| Containers | Docker and Docker Compose |
+| Hosting | Render API and PostgreSQL; Vercel frontend |
+| CI | GitHub Actions |
 
-Google session authentication, CSRF, and health endpoints remain under
-`/api`; see [the API contract](docs/api-contracts.md) for request/response
-examples and error codes. Swagger UI is available at
-`http://localhost:8080/swagger-ui/index.html`. Its OpenAPI JSON spec is at
-`http://localhost:8080/v3/api-docs`; use **Download** or save that JSON response
-to import the current API definition into APIMatic API Designer
-(**Import > OpenAPI**). For a deployed API, APIMatic can import the spec URL
-directly; a locally running `localhost` URL is not accessible to APIMatic's
-hosted service. The generated spec is also checked in at
-[`openapi/spendwise-openapi.json`](openapi/spendwise-openapi.json). Both tools
-therefore use the same generated API definition.
+## Key features
 
-The spec documents the session cookie and CSRF header security requirements.
-To try secured endpoints in Swagger UI, sign in to the API in that browser
-first; obtain a CSRF token from `GET /api/auth/csrf` before trying a
-state-changing request. Shopping search uses Gemini to structure the request
-before Channel3 search. AI ranking can only reorder eligible Channel3 result
-IDs; policy enforcement and all product facts remain server-controlled.
-Spring AI framework adoption remains future work.
+- Google OAuth sign-in with a server-side session and CSRF protection.
+- Per-account spending policies for item price, order amount, weekly budget, and weekly order count.
+- Gemini-based shopping intent extraction and optional ranking of actual provider results.
+- Channel3 search with filters, saved preferences, and search history.
+- Backend eligibility checks for offers, with rejected offers and policy reasons retained for review.
+- Cart and checkout flow with idempotency keys, budget reservations, and serialized capture handling.
+- PayPal Sandbox order creation, capture, status reconciliation, and signed webhook verification.
+- Transaction summaries and audit events for searches, policy decisions, and payment state changes.
+- OpenAPI documentation and automated backend/frontend checks.
 
-Schema additions are in `V2__add_shopping_and_checkout_api.sql`,
-`V3__retain_search_price_limits.sql`, `V4__create_user_accounts.sql`, and
-`V5__repair_payment_candidate_reference.sql`, `V6__add_shopping_preferences.sql`,
-`V7__track_paypal_refunds.sql`, and `V8__add_cart_and_checkout_details.sql`.
-The repair migration restores the optional candidate foreign key if a database drifted after V2. Earlier
-migrations are not edited.
+## System design
+
+### Shopping request flow
+
+```text
+Signed-in user
+  → Spring Security session and request validation
+  → Gemini extracts shopping intent
+  → Channel3 searches for real products and offers
+  → Policy engine marks offers eligible or rejected
+  → Search, candidates, and audit events are stored in PostgreSQL
+  → Frontend displays the result and policy decision
+```
+
+### Checkout flow
+
+```text
+User selects an eligible offer
+  → Backend rechecks the offer and spending policy
+  → Budget and order capacity are reserved
+  → PayPal Sandbox order is created with an idempotency key
+  → User approves on PayPal
+  → Backend captures and verifies the order
+  → Verified webhooks reconcile payment, refund, and reversal events
+```
+
+Policy decisions and payment state changes are enforced on the server. The browser cannot mark an offer eligible or a payment complete.
+
+## Integrations
+
+### Channel3 product discovery
+
+Channel3 returns the current product listings and offers used by the shopping flow. Spendwise requests up to 10 results by default (configurable up to 100). Product titles, prices, merchants, availability, and URLs come from Channel3. Gemini may organize or rank these candidates but cannot add candidates or change their facts.
+
+Set `CHANNEL3_API_KEY` to enable live product search. Search requests are limited per signed-in user; provider limits also apply.
+
+### Gemini
+
+Gemini structures shopping prompts and may rank eligible Channel3 candidates. The deployed backend uses Gemini Flash-Lite for lower-latency prompt interpretation. Set `GEMINI_API_KEY` to enable Gemini features. The key stays on the backend and is never sent to the browser.
+
+Gemini does not decide whether an offer is eligible, perform checkout, or supply product facts. If Gemini is slow or unavailable, the request can fail or use the supported keyword fallback paths.
+
+### PayPal Sandbox
+
+Checkout is configured for PayPal Sandbox. A Sandbox approval and capture are for testing the payment flow; they do not purchase the product from the retailer. Actual product purchases happen on the retailer's site.
+
+Set `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` from the same Sandbox REST app. To enable webhooks, register the public HTTPS endpoint `https://<render-api-host>/api/webhooks/paypal` and set `PAYPAL_WEBHOOK_ID` to the webhook registration ID. Do not use an individual webhook event ID. The webhook handler verifies each event with PayPal before applying it.
+
+## Getting started
+
+### Prerequisites
+
+- Java 21
+- Docker Desktop with Docker Compose
+- Node.js and npm
+- Git
+- Provider credentials for live Google sign-in, Gemini, Channel3, or PayPal Sandbox features
+
+### Local setup
+
+Clone the repository and enter the project directory:
+
+```sh
+git clone https://github.com/mkalki/Spendwise.git
+cd Spendwise
+```
+
+Copy the sample environment file:
+
+```sh
+cp .env.example .env
+```
+
+On Windows PowerShell, use `Copy-Item .env.example .env` instead. Edit `.env` and set local database values plus any provider credentials you need. Keep real credentials in `.env`; never commit it.
+
+Start PostgreSQL and the backend:
+
+```sh
+docker compose up -d --build
+```
+
+Install frontend dependencies and start Vite in a second terminal:
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173). The API health endpoint is [http://localhost:8080/api/health](http://localhost:8080/api/health). Docker Compose waits for PostgreSQL to become healthy before starting the API; Flyway applies database migrations during API startup.
+
+Live Google sign-in requires a Google OAuth client. Add `http://localhost:8080/login/oauth2/code/google` as its authorized redirect URI and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`. Live product search requires `CHANNEL3_API_KEY` and `GEMINI_API_KEY`; PayPal Sandbox checkout additionally requires Sandbox client credentials. The app can start without these provider keys, but the corresponding live features will be unavailable.
+
+### Google sign-in setup
+
+Create a Google OAuth 2.0 Web application client and authorize this local callback URI:
+
+```text
+http://localhost:8080/login/oauth2/code/google
+```
+
+Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`. Start sign-in from the frontend so Vite can proxy `/api`, `/oauth2`, and `/login/oauth2` to the backend.
+
+## API documentation
+
+When the backend is running, use:
+
+- Swagger UI: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
+- OpenAPI JSON: [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+- API request/response examples: [`docs/api-contracts.md`](docs/api-contracts.md)
+
+The authenticated shopping, policy, cart, and payment APIs are under `/api/v1`. Google auth, health, and webhook routes are documented in the OpenAPI spec.
 
 ## Testing
 
-Run the backend unit and HTTP/security API integration tests with:
+Run backend tests:
 
-```powershell
-mvn -f backend\pom.xml test
+```sh
+mvn -f backend/pom.xml test
 ```
 
-The suite covers policy limits, intent parsing, request validation, authenticated
-owner propagation, API error handling, Gemini/Channel3 client failures, AI
-ranking, PayPal capture state, webhook signature verification, retries, and
-Swagger. A Testcontainers PostgreSQL test applies Flyway migrations and checks
-owner-scoped persistence when Docker is available. Provider mocks are used in CI.
+Run frontend tests and lint:
 
-For opt-in live provider connectivity tests, set the provider environment
-variables and run:
-
-```powershell
-$env:SPENDWISE_EXTERNAL_INTEGRATION_TESTS = "true"
-mvn -f backend\pom.xml verify -DskipProviderITs=false
+```sh
+npm --prefix frontend test
+npm --prefix frontend run lint
 ```
 
-This checks Gemini generation, Channel3 search, and PayPal Sandbox OAuth. A full
-PayPal buyer approval/capture/webhook round trip still requires a registered
-Sandbox webhook and a Sandbox buyer account.
+Build the frontend:
 
-For database-backed load testing, install k6, sign in to get a session cookie,
-then run:
-
-```powershell
-$env:SPENDWISE_BASE_URL = "http://localhost:8080"
-$env:SPENDWISE_SESSION_COOKIE = "JSESSIONID=your-session-cookie"
-k6 run load-tests/spendwise-api.js
+```sh
+npm --prefix frontend run build
 ```
 
-## Implemented features and remaining work
+Backend tests cover policies, authentication boundaries, request validation, Gemini and Channel3 clients, candidate ranking, checkout state, webhook verification, and API documentation. PostgreSQL Testcontainers coverage runs when Docker is available. Provider connectivity tests are opt-in and require configured credentials.
 
-| Area | Status |
-| --- | --- |
-| Google OAuth sessions | Implemented; live Google sign-in requires configured OAuth credentials. |
-| Gemini integration, product comparison, and explanations | Implemented; explanations compare eligible Channel3 candidates with the customer's prompt and saved preferences. Gemini cannot provide commercial product facts or affect policy eligibility. Calls have bounded timeouts, transient retries, and a 20-request/minute user limit. |
-| Channel3 product search | Implemented with filters, 100 requests/minute per user, provider timeouts, and retry handling. |
-| PayPal Sandbox checkout | Implemented with owner-scoped idempotency, serialized captures, and PayPal status verification before marking paid. |
-| PayPal webhook verification | Implemented at `POST /api/webhooks/paypal`; requires `PAYPAL_WEBHOOK_ID` from the registered PayPal webhook. |
-| Shopping preferences and search history | Preferences load automatically for searches; saved maximum price tightens the search cap and other preferences guide AI comparison. Customers can view and update them through the authenticated GET/PUT preferences APIs. |
-| Spendwise Pro | Manual PayPal merchant payments in USD: $1 for the first monthly term, $0.80 for later monthly renewals, or $6 for a 12-month term. Active Pro bypasses Spendwise per-user search limits; provider limits still apply. |
-| Free search quota | 20 searches per rolling 24 hours per account, stored in PostgreSQL; Pro bypasses the app-level quota while provider limits remain in force. |
-| Audit trail | Implemented for policy changes, search starts/results, candidate decisions, preference updates, checkout reservations, PayPal order creation and payment state changes, and verified webhook deliveries. Audit metadata omits raw search text and credentials. |
-| Error handling, validation, and Swagger | Implemented with stable JSON API errors and documented routes. |
-| Unit, controller, and database tests | Implemented; PostgreSQL Testcontainers coverage is skipped when Docker is unavailable. |
-| Load testing | k6 script added for authenticated, database-backed API requests. |
-| Frontend | React app with sign-in, a spending dashboard, the shopping assistant, product filters and recommendations, a saved cart, and PayPal Sandbox checkout. |
-| Live Sandbox lifecycle test | Still needs a configured webhook, Sandbox buyer approval, and end-to-end confirmation in the developer account. |
+## CI/CD
 
-## Render backend and Vercel frontend
+GitHub Actions workflows are in [`.github/workflows/`](.github/workflows/):
 
-The backend Blueprint is `render.yaml`; it creates the Docker API service and
-a PostgreSQL database. The frontend Vercel configuration is
-`frontend/vercel.json`; set the Vercel project's root directory to `frontend`.
-Vercel proxies `/api`, `/oauth2`, and `/login/oauth2` through to the Render API,
-so browser sessions and CSRF cookies stay on the frontend origin. Render
-auto-deploys only after the GitHub checks pass.
+- `ci.yml` builds and verifies the backend, runs frontend tests and lint, builds the frontend, validates the OpenAPI document and Docker Compose configuration, and builds the backend Docker image.
+- `cd.yml` checks the deployed Spendwise frontend and API health after a Render deployment; it can also be run manually. Render and Vercel handle the actual deployments from their connected repositories.
 
-Vercel deploys `main` through its Git integration. After Render reports a
-successful `main - spendwise-api` deployment, `.github/workflows/cd.yml` checks
-the public `/assistant` route and `/api/health` through Vercel. It can also be
-run manually from GitHub Actions. The workflow checks availability; Render and
-Vercel remain responsible for starting deployments.
+The deployment check verifies availability. It does not run a live PayPal transaction or a live Gemini/Channel3 search.
 
-On Render, set these URLs using the production Vercel domain:
+## Render and Vercel deployment
+
+The project deploys the frontend to Vercel and the Dockerized API plus PostgreSQL database to Render. The Render Blueprint is [`render.yaml`](render.yaml); Vercel's rewrite configuration is [`frontend/vercel.json`](frontend/vercel.json). Vercel proxies `/api`, `/oauth2`, and `/login/oauth2` to Render so the browser uses the frontend origin for session cookies and CSRF.
+
+Configure these production URLs using the Vercel domain:
 
 ```text
 FRONTEND_ORIGIN=https://<your-vercel-domain>
@@ -250,16 +245,28 @@ PAYPAL_VAULT_RETURN_URL=https://<your-vercel-domain>/paypal/vault/return
 PAYPAL_VAULT_CANCEL_URL=https://<your-vercel-domain>/paypal/vault/cancel
 ```
 
-In Google Cloud OAuth settings, add `GOOGLE_REDIRECT_URI` as an authorized
-redirect URI. Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-`CHANNEL3_API_KEY`, `GEMINI_API_KEY`, `PAYPAL_CLIENT_ID`, and
-`PAYPAL_CLIENT_SECRET` as Render secrets. The PayPal credentials must be from a
-Sandbox REST app. Register a webhook at
-`https://spendwise-api-88bt.onrender.com/api/webhooks/paypal`, then set
-`PAYPAL_WEBHOOK_ID` if using webhooks.
+Add the exact `GOOGLE_REDIRECT_URI` to the Google OAuth client. Set provider secrets in Render; do not commit them or place them in frontend variables. PayPal client credentials must come from a Sandbox REST app. Register the PayPal webhook against the public Render API URL and set its registration ID as `PAYPAL_WEBHOOK_ID`.
 
-Do not put production credentials in the repository's `.env` or commit them.
-Set Render secrets in the Render dashboard. The Vercel frontend uses same-origin
-rewrites and needs no API key or backend URL environment variable. Render's
-free Postgres plan expires after 30 days and has no backups; use a paid database
-for data that must persist.
+Render's free web services sleep after 15 minutes without inbound traffic, so the first request after inactivity can take about a minute to wake the service. A free Render PostgreSQL database expires 30 days after creation and has no backups; use a paid database for data that must persist.
+
+## Project structure
+
+```text
+.
+├── backend/                 Spring Boot API and Dockerfile
+├── frontend/                React/Vite application and Vercel config
+├── docs/                    API contracts and project documentation
+├── load-tests/              k6 API load test
+├── openapi/                 Checked-in generated OpenAPI document
+├── render.yaml              Render API and PostgreSQL Blueprint
+└── docker-compose.yml        Local PostgreSQL and backend services
+```
+
+## Future enhancements
+
+- PayPal Sandbox transactions are test transactions; live payments require a separate production PayPal app and launch review.
+- Channel3 availability, product coverage, pricing, and latency depend on the external provider.
+- Render free services can sleep, and the free PostgreSQL instance expires after 30 days.
+- A full Sandbox webhook lifecycle check requires a Sandbox buyer, successful checkout approval, and delivery to the registered public webhook.
+- Add durable sessions across API restarts and richer provider latency metrics.
+- Move to production hosting with a persistent database plan and backups before relying on stored user data.

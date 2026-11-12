@@ -51,7 +51,8 @@ class GeminiClientTest {
                 .andExpect(header("x-goog-api-key", "test-gemini-key"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                        {"contents":[{"role":"user","parts":[{"text":"Say hello."}]}]}
+                        {"contents":[{"role":"user","parts":[{"text":"Say hello."}]}],
+                         "generationConfig":{"thinkingConfig":{"thinkingLevel":"low"}}}
                         """))
                 .andRespond(withSuccess("""
                         {"candidates":[{"content":{"parts":[{"text":"Hello"},{"text":" from Gemini."}]}}]}
@@ -109,7 +110,7 @@ class GeminiClientTest {
                 .andExpect(content().json("""
                         {
                           "contents":[{"role":"user","parts":[{"text":"Extract shopping intent."}]}],
-                          "generationConfig":{"responseMimeType":"application/json"}
+                          "generationConfig":{"responseMimeType":"application/json","thinkingConfig":{"thinkingLevel":"low"}}
                         }
                         """))
                 .andRespond(withSuccess("""
@@ -125,14 +126,17 @@ class GeminiClientTest {
 
     @Test
     void reportsMissingApiKeyWithoutMakingARequest() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://generativelanguage.googleapis.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         GeminiClient client = new GeminiClient(
-                RestClient.builder().baseUrl("https://generativelanguage.googleapis.com").build(),
+                builder.build(),
                 new ObjectMapper(),
                 " ",
                 "gemini-3.8-flash");
 
         assertThatThrownBy(() -> client.generate(new GeminiRequest("Say hello.")))
                 .isInstanceOf(GeminiNotConfiguredException.class);
+        server.verify();
     }
 
     @Test

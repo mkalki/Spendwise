@@ -1,10 +1,12 @@
 package com.spendwise.integration.gemini;
 
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
@@ -12,8 +14,15 @@ public class GeminiConfig {
 
     @Bean("geminiRestClient")
     RestClient geminiRestClient(
-            ClientHttpRequestFactory requestFactory,
+            @Value("${spendwise.http.connect-timeout-seconds:5}") int connectTimeoutSeconds,
+            @Value("${spendwise.gemini.read-timeout-seconds:45}") int readTimeoutSeconds,
             @Value("${spendwise.gemini.base-url:https://generativelanguage.googleapis.com}") String baseUrl) {
+        if (connectTimeoutSeconds < 1 || readTimeoutSeconds < 1) {
+            throw new IllegalArgumentException("Gemini HTTP timeouts must be positive.");
+        }
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(connectTimeoutSeconds)).build());
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
         return RestClient.builder()
                 .baseUrl(requireOfficialBaseUrl(baseUrl))
                 .requestFactory(requestFactory)

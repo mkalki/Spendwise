@@ -13,6 +13,8 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
@@ -22,6 +24,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 @Component
 public class GeminiClient {
+    private static final Logger log = LoggerFactory.getLogger(GeminiClient.class);
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -60,10 +63,12 @@ public class GeminiClient {
         Map<String, Object> body = jsonResponse
                 ? Map.of(
                     "contents", List.of(Map.of("role", "user", "parts", List.of(Map.of("text", request.prompt())))),
-                    "generationConfig", Map.of("responseMimeType", "application/json"))
-                : Map.of("contents", List.of(Map.of(
-                        "role", "user",
-                        "parts", List.of(Map.of("text", request.prompt())))));
+                    "generationConfig", Map.of(
+                            "responseMimeType", "application/json",
+                            "thinkingConfig", Map.of("thinkingLevel", "low")))
+                : Map.of(
+                    "contents", List.of(Map.of("role", "user", "parts", List.of(Map.of("text", request.prompt())))),
+                    "generationConfig", Map.of("thinkingConfig", Map.of("thinkingLevel", "low")));
         try {
             JsonNode response = TransientHttpRetry.execute(() -> restClient.post()
                     .uri("/v1beta/models/{model}:generateContent", model)
@@ -78,6 +83,9 @@ public class GeminiClient {
             }
             return new GeminiResponse(model, text);
         } catch (ResourceAccessException exception) {
+            Throwable cause = exception.getCause();
+            log.warn("Gemini request failed at the network layer: {}", cause == null
+                    ? exception.getClass().getSimpleName() : cause.getClass().getSimpleName());
             throw new GeminiTimeoutException();
         } catch (RestClientResponseException exception) {
             if (isInvalidApiKeyResponse(exception)) {

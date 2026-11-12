@@ -153,7 +153,7 @@ export default function Cart() {
   const selected = items?.find(({ candidateId }) => candidateId === selection) ?? items?.[0];
 
   return (
-    <div className="shop-page">
+    <div className="shop-page cart-page">
       <section className="panel cart-list">
         <div className="shop-heading">
           <div>

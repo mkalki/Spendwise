@@ -33,3 +33,145 @@ html{scroll-behavior:auto}
   body .product-scene canvas { cursor: grab; }
   body .product-scene canvas:active { cursor: grabbing; }
 }
+
+/* Keep the policy and cart workspaces within the desktop viewport. */
+@media (min-width: 941px) {
+  .studio-shell:has(.policy-page),
+  .studio-shell:has(.cart-page) {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .studio-shell .main-content:has(.policy-page),
+  .studio-shell .main-content:has(.cart-page) {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .studio-shell .main-content:has(.policy-page) > .topbar,
+  .studio-shell .main-content:has(.cart-page) > .topbar {
+    flex: 0 0 82px;
+  }
+
+  .studio-shell .main-content:has(.policy-page) > .page-content,
+  .studio-shell .main-content:has(.cart-page) > .page-content {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: clamp(12px, 1.4vw, 22px) clamp(16px, 2vw, 28px);
+  }
+
+  .studio-shell .policy-page,
+  .studio-shell .cart-page {
+    flex: 1;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .studio-shell .policy-page {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .studio-shell .policy-title h2 { font-size: clamp(28px, 2.6vw, 38px); }
+  .studio-shell .policy-heading p { font-size: 13px; }
+  .studio-shell .policy-banner { display: none; }
+  .studio-shell .policy-layout {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  .studio-shell .policy-form,
+  .studio-shell .policy-summary-card {
+    min-height: 0;
+    padding: clamp(14px, 1.4vw, 20px);
+  }
+
+  .studio-shell .policy-form {
+    gap: 12px;
+    align-content: start;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .studio-shell .policy-form-header h3 { font-size: 20px; }
+  .studio-shell .form-section { padding-top: 12px; }
+  .studio-shell .form-section h4 { margin-bottom: 10px; }
+  .studio-shell .policy-fields { gap: 10px 14px; }
+  .studio-shell .policy-form .form-group { gap: 4px; }
+  .studio-shell .policy-form .form-group input,
+  .studio-shell .policy-form .form-group select {
+    min-height: 38px;
+    padding: 7px 10px;
+  }
+
+  .studio-shell .policy-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding: 10px 0 0;
+    background: #151521;
+  }
+
+  .studio-shell .policy-summary-card {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .studio-shell .summary-status { margin-top: auto; padding-top: 18px; }
+
+  .studio-shell .cart-page { align-items: stretch; }
+  .studio-shell .cart-page .cart-list,
+  .studio-shell .cart-page .cart-checkout {
+    height: 100%;
+    min-height: 0;
+    padding: clamp(14px, 1.5vw, 22px);
+  }
+
+  .studio-shell .cart-page .cart-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .studio-shell .cart-page .cart-items {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .studio-shell .cart-page .cart-list > .reset-button {
+    align-self: flex-start;
+    margin-top: auto;
+  }
+
+  .studio-shell .cart-page .cart-checkout {
+    gap: 12px;
+    align-content: start;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .studio-shell .cart-page .checkout-address { gap: 8px 12px; padding: 10px; }
+  .studio-shell .cart-page .checkout-address .form-group { gap: 4px; }
+  .studio-shell .cart-page .checkout-address input { min-height: 38px; padding: 7px 10px; }
+  .studio-shell .cart-page .shop-muted { margin: 0; }
+}
+
+@media (max-width: 940px) {
+  .studio-shell .cart-page .cart-items {
+    max-height: min(55svh, 460px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
